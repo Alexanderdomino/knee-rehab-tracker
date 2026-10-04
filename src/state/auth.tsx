@@ -17,10 +17,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export const useAuth = () => useContext(AuthContext)
 
-export async function signInWithGoogle() {
-  const provider = new GoogleAuthProvider()
-  provider.setCustomParameters({ prompt: 'select_account' })
-  await signInWithPopup(auth, provider)
+// Same flow as session-calendar: a plain Google popup against the default
+// <project>.firebaseapp.com auth domain. Call it directly from the click
+// handler so iOS Safari treats the popup as user-initiated.
+export function signInWithGoogle() {
+  return signInWithPopup(auth, new GoogleAuthProvider())
 }
 
 /**

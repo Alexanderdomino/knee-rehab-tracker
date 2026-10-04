@@ -1,17 +1,18 @@
 import { useState } from 'react'
+import { authErrorMessage } from '../lib/authMode'
 import { useEmulators } from '../lib/firebase'
 import { signInEmulatorTestUser, signInWithGoogle } from '../state/auth'
 
 export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const run = (fn: () => Promise<void>) => async () => {
+  const run = (fn: () => Promise<unknown>) => async () => {
     setBusy(true)
     setError(null)
     try {
       await fn()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(authErrorMessage(e))
     } finally {
       setBusy(false)
     }
