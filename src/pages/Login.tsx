@@ -1,16 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { authErrorMessage } from '../lib/authMode'
 import { useEmulators } from '../lib/firebase'
-import { completeRedirectSignIn, signInEmulatorTestUser, signInWithGoogle } from '../state/auth'
+import { signInEmulatorTestUser, signInWithGoogle } from '../state/auth'
 
 export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  // Surface errors from a redirect sign-in that just returned to the app.
-  useEffect(() => {
-    completeRedirectSignIn().catch((e) => setError(authErrorMessage(e)))
-  }, [])
-  const run = (fn: () => Promise<void>) => async () => {
+  const run = (fn: () => Promise<unknown>) => async () => {
     setBusy(true)
     setError(null)
     try {

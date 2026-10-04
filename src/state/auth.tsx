@@ -1,16 +1,6 @@
-import {
-  getRedirectResult,
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  signInWithCredential,
-  signInWithPopup,
-  signInWithRedirect,
-  signOut,
-  type User,
-} from 'firebase/auth'
+import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut, type User } from 'firebase/auth'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { shouldUseRedirect } from '../lib/authMode'
-import { auth, firebaseConfig, useEmulators } from '../lib/firebase'
+import { auth, useEmulators } from '../lib/firebase'
 
 interface AuthState {
   user: User | null
@@ -27,19 +17,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export const useAuth = () => useContext(AuthContext)
 
-export async function signInWithGoogle() {
-  const provider = new GoogleAuthProvider()
-  provider.setCustomParameters({ prompt: 'select_account' })
-  if (shouldUseRedirect(firebaseConfig.authDomain, window.location.host)) {
-    await signInWithRedirect(auth, provider)
-  } else {
-    await signInWithPopup(auth, provider)
-  }
-}
-
-/** Completes a redirect sign-in; rejects with the error if it failed. */
-export async function completeRedirectSignIn() {
-  await getRedirectResult(auth)
+// Same flow as session-calendar: a plain Google popup against the default
+// <project>.firebaseapp.com auth domain. Call it directly from the click
+// handler so iOS Safari treats the popup as user-initiated.
+export function signInWithGoogle() {
+  return signInWithPopup(auth, new GoogleAuthProvider())
 }
 
 /**
