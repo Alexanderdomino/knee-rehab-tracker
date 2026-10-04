@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Status palette (reserved for pain zones / guidance status) */
+  --color-zone-green: #0ca30c;
+  --color-zone-amber: #fab219;
+  --color-zone-red: #d03b3b;
+  /* Load series (categorical slot 1) */
+  --color-load: #2a78d6;
+  --color-brand: #0f766e;
+}
+
+:root {
+  color-scheme: light;
+  -webkit-tap-highlight-color: transparent;
+}
+:root.dark {
+  color-scheme: dark;
+}
+
+html,
+body {
+  @apply bg-stone-50 text-stone-900 dark:bg-stone-950 dark:text-stone-100;
+  overscroll-behavior-y: none;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Recharts: keep text in ink tokens, never series colors */
+.recharts-text {
+  fill: var(--color-stone-500);
+  font-size: 11px;
+}
+.recharts-cartesian-grid line {
+  stroke: var(--color-stone-200);
+}
+.dark .recharts-cartesian-grid line {
+  stroke: var(--color-stone-800);
+}
+.recharts-tooltip-wrapper {
+  outline: none;
+}
+
+@utility card {
+  @apply rounded-2xl bg-white p-4 shadow-sm ring-1 ring-stone-200 dark:bg-stone-900 dark:ring-stone-800;
+}
+
+@utility btn {
+  @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 font-semibold transition active:scale-[0.98] disabled:opacity-50;
+}
+
+@utility btn-primary {
+  @apply btn bg-teal-700 text-white hover:bg-teal-800 dark:bg-teal-600 dark:hover:bg-teal-500;
+}
+
+@utility btn-secondary {
+  @apply btn bg-stone-100 text-stone-900 ring-1 ring-stone-300 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-100 dark:ring-stone-700 dark:hover:bg-stone-700;
+}
+
+@utility btn-danger {
+  @apply btn bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-950 dark:text-red-300 dark:ring-red-900;
+}
+
+@utility input {
+  @apply min-h-12 w-full rounded-xl border border-stone-300 bg-white px-3 text-base text-stone-900 focus:border-teal-600 focus:ring-2 focus:ring-teal-600/30 focus:outline-none dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100;
+}
+
+@utility label {
+  @apply mb-1.5 block text-sm font-medium text-stone-600 dark:text-stone-400;
+}
+
+@utility section-title {
+  @apply mb-2 text-sm font-semibold tracking-wide text-stone-500 uppercase dark:text-stone-400;
+}
