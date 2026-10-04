@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acwrSeries, greenStreaks, linearSlope, loadVsNextDayPain, pctChange, rollingAverage, weeklySummaries, windowLoad,
 } from './aggregate';
-import { loadEntry, pains, series, settings } from './testUtils';
+import { loadEntry, pains, series, settings, strengthEntry } from './testUtils';
 
 describe('weekly aggregation', () => {
   // Thu 2026-01-29 .. Tue 2026-02-10 spans a month boundary and three ISO weeks.
@@ -15,7 +15,8 @@ describe('weekly aggregation', () => {
 
   it('groups by ISO week across a month boundary and sums load', () => {
     expect(weeks.map((w) => w.weekStart)).toEqual(['2026-01-26', '2026-02-02', '2026-02-09']);
-    expect(weeks.map((w) => w.totalLoad)).toEqual([300, 300, 330]);
+    expect(weeks.map((w) => w.cardioLoad)).toEqual([300, 300, 330]);
+    expect(weeks.map((w) => w.strengthLoad)).toEqual([0, 0, 0]);
     expect(weeks.map((w) => w.daysInRange)).toEqual([4, 7, 2]);
   });
 
@@ -32,12 +33,30 @@ describe('weekly aggregation', () => {
   });
 
   it('computes week-over-week % change', () => {
-    expect(weeks.slice(0, 2).map((w) => w.wowPct)).toEqual([null, 0]);
-    expect(weeks[2].wowPct).toBeCloseTo(10);
+    expect(weeks.slice(0, 2).map((w) => w.cardioWowPct)).toEqual([null, 0]);
+    expect(weeks[2].cardioWowPct).toBeCloseTo(10);
+    expect(weeks[2].strengthWowPct).toBeNull();
   });
 
   it('breaks load down by activity type', () => {
-    expect(weeks[0].loadByType).toEqual({ Cycling: 300 });
+    expect(weeks[0].cardioByType).toEqual({ Cycling: 300 });
+  });
+
+  it('tracks strength tonnage per week and per exercise separately from cardio', () => {
+    const w = weeklySummaries(
+      series([], [
+        strengthEntry('2026-03-02', 1000),
+        strengthEntry('2026-03-04', 500, { exercises: [{ name: 'RDL', sets: 1, reps: 10, loadKg: 50 }] }),
+        loadEntry('2026-03-04', 40),
+        strengthEntry('2026-03-09', 1800),
+      ], '2026-03-10'),
+      settings(),
+    );
+    expect(w.map((x) => x.strengthLoad)).toEqual([1500, 1800]);
+    expect(w.map((x) => x.cardioLoad)).toEqual([40, 0]);
+    expect(w[1].strengthWowPct).toBe(20);
+    expect(w[1].cardioWowPct).toBe(-100);
+    expect(w[0].tonnageByExercise).toEqual({ 'Leg press': 1000, RDL: 500 });
   });
 
   it('pctChange is null when the previous value is 0', () => {
@@ -56,7 +75,8 @@ describe('rolling averages and ACWR', () => {
     // load 280 on day 1, nothing logged for the next 6 days except day 7 pain
     const s = series([{ date: '2026-03-07', pain: 1 }], [loadEntry('2026-03-01', 280)], '2026-03-07');
     expect(s).toHaveLength(7);
-    expect(acwrSeries(s).at(-1)!.acute).toBe(40);
+    expect(acwrSeries(s, 'cardio').at(-1)!.acute).toBe(40);
+    expect(acwrSeries(s, 'strength').at(-1)!.acute).toBe(0);
   });
 
   it('computes acute (7d), chronic (28d) and ACWR', () => {
@@ -65,7 +85,7 @@ describe('rolling averages and ACWR', () => {
       const d = new Date(Date.UTC(2026, 1, 1 + i)).toISOString().slice(0, 10);
       entries.push(loadEntry(d, i < 21 ? 100 : 200));
     }
-    const pts = acwrSeries(series([], entries, '2026-02-28'));
+    const pts = acwrSeries(series([], entries, '2026-02-28'), 'cardio');
     expect(pts[26].chronic).toBeNull();
     expect(pts[26].acwr).toBeNull();
     const last = pts.at(-1)!;
@@ -76,13 +96,14 @@ describe('rolling averages and ACWR', () => {
 
   it('ACWR is null when chronic load is 0', () => {
     const s = series(pains('2026-01-01', Array(28).fill(1)), [], '2026-01-28');
-    expect(acwrSeries(s).at(-1)!.acwr).toBeNull();
+    expect(acwrSeries(s, 'cardio').at(-1)!.acwr).toBeNull();
   });
 
   it('windowLoad returns null when the window leaves the series', () => {
     const s = series([], [loadEntry('2026-01-01', 10), loadEntry('2026-01-03', 5)], '2026-01-03');
-    expect(windowLoad(s, 2, 3)).toBe(15);
-    expect(windowLoad(s, 2, 4)).toBeNull();
+    expect(windowLoad(s, 2, 3, 'cardio')).toBe(15);
+    expect(windowLoad(s, 2, 3, 'strength')).toBe(0);
+    expect(windowLoad(s, 2, 4, 'cardio')).toBeNull();
   });
 
   it('linearSlope', () => {
@@ -109,7 +130,7 @@ describe('load vs next-day pain', () => {
       [loadEntry('2026-01-01', 200), loadEntry('2026-01-02', 500), loadEntry('2026-01-03', 300), loadEntry('2026-01-05', 250)],
       '2026-01-06',
     );
-    const t = loadVsNextDayPain(s, settings());
+    const t = loadVsNextDayPain(s, settings(), 'cardio');
     // 01-03 → 01-04 not logged: skipped. 01-04 (0 load) → 01-05 pain 1
     expect(t.points.map((p) => [p.load, p.nextDayPain])).toEqual([[200, 1], [500, 4], [0, 1], [250, 2]]);
     expect(t.greenRange).toEqual({ min: 0, max: 250 });

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { addDays } from './dates';
 import { evaluateGuidance, statusTimeline, suggestTarget, type RuleId } from './guidance';
-import { entry, loadEntry, pains, series, settings } from './testUtils';
-import type { DayLog, Entry, Settings } from './types';
+import { entry, loadEntry, pains, series, settings, strengthEntry } from './testUtils';
+import type { DayLog, Entry, LoadStream, Settings } from './types';
 
 const TODAY = '2026-10-04';
 const daysAgo = (n: number) => addDays(TODAY, -n);
@@ -14,7 +14,9 @@ function run(days: DayLog[], entries: Entry[] = [], s: Partial<Settings> = {}) {
   return evaluateGuidance(series(days, entries, TODAY), settings(s));
 }
 
-const state = (g: ReturnType<typeof run>, id: RuleId) => g.checks.find((c) => c.id === id)!.state;
+/** State of a rule; load rules are looked up for `stream` (default cardio, which `loadEntry` produces). */
+const state = (g: ReturnType<typeof run>, id: RuleId, stream: LoadStream = 'cardio') =>
+  g.checks.find((c) => c.id === id && (c.stream === undefined || c.stream === stream))!.state;
 
 /** Daily constant load for `n` days ending today. */
 const dailyLoad = (n: number, load: number | ((i: number) => number)): Entry[] =>
@@ -110,7 +112,7 @@ describe('RED: ACWR above upper limit', () => {
 
   it('does not fire at exactly the limit, fires above', () => {
     const at = run([], acwrEntries(189, 273));
-    expect(at.metrics.acwr).toBeCloseTo(1.3, 10);
+    expect(at.metrics.streams.cardio.acwr).toBeCloseTo(1.3, 10);
     expect(state(at, 'acwr-high')).toBe('ok');
     const above = run([], acwrEntries(189, 274));
     expect(state(above, 'acwr-high')).toBe('fired');
@@ -120,7 +122,7 @@ describe('RED: ACWR above upper limit', () => {
   it('needs 28 days of history', () => {
     const g = run([], dailyLoad(27, 100));
     expect(state(g, 'acwr-high')).toBe('insufficient');
-    expect(g.metrics.acwr).toBeNull();
+    expect(g.metrics.streams.cardio.acwr).toBeNull();
     expect(g.dataNotes.join(' ')).toMatch(/needs 28 days/);
   });
 
@@ -148,7 +150,7 @@ describe('AMBER: week-over-week load increase', () => {
 
   it('does not fire at exactly +10%, fires above', () => {
     const at = wow(1000, 1100);
-    expect(at.metrics.wowPct).toBeCloseTo(10);
+    expect(at.metrics.streams.cardio.wowPct).toBeCloseTo(10);
     expect(state(at, 'wow-increase')).toBe('ok');
     const above = wow(1000, 1101);
     expect(state(above, 'wow-increase')).toBe('fired');
@@ -169,7 +171,7 @@ describe('AMBER: week-over-week load increase', () => {
   it('counts zero-filled days as 0 load', () => {
     // nothing logged at all in the previous window except the first-log day with 0 load → prev 0
     const g = run([{ date: daysAgo(13), pain: 0 }], [loadEntry(TODAY, 50)]);
-    expect(g.metrics.prev7Load).toBe(0);
+    expect(g.metrics.streams.cardio.prev7).toBe(0);
   });
 });
 
@@ -195,7 +197,7 @@ describe('GREEN: progression requirements', () => {
     const g = run(painsEndingToday([1, 1, 1, 1, 1, 1, 1]), dailyLoad(7, 150));
     expect(g.status).toBe('GREEN');
     expect(g.headline).toBe('OK to progress');
-    expect(g.target.label).toBe('1155'); // 1050 × 1.10
+    expect(g.targets.map((t) => t.label)).toEqual(['1,155 min']); // 1050 × 1.10
     // ACWR has too little data: GREEN, but says so
     expect(g.reasons.join(' ')).toMatch(/not enough data/);
   });
@@ -229,7 +231,7 @@ describe('GREEN: progression requirements', () => {
     // 21 days at 100, then 7 days at 70 → ACWR 70/92.5 ≈ 0.76
     const entries = dailyLoad(28, (i) => (i < 21 ? 100 : 70));
     const g = run(painsEndingToday(Array(28).fill(1)), entries);
-    expect(g.metrics.acwr!).toBeLessThan(0.8);
+    expect(g.metrics.streams.cardio.acwr!).toBeLessThan(0.8);
     expect(state(g, 'acwr-in-range')).toBe('fired');
     expect(g.status).toBe('AMBER');
     expect(run(painsEndingToday(Array(28).fill(1)), entries, { acwrLower: 0.7 }).status).toBe('GREEN');
@@ -255,27 +257,73 @@ describe('priority and targets', () => {
 
   it('suggests a concrete reduction range on RED', () => {
     const g = run(painsEndingToday([7]), dailyLoad(7, 1000 / 7));
-    expect(g.target).toMatchObject({ base: 1000, min: 700, max: 800, label: '700–800' });
+    expect(g.targets).toHaveLength(1);
+    expect(g.targets[0]).toMatchObject({ stream: 'cardio', base: 1000, min: 700, max: 800, label: '700–800 min' });
     const custom = run(painsEndingToday([7]), dailyLoad(7, 1000 / 7), { reductionMinPct: 10, reductionMaxPct: 10 });
-    expect(custom.target.label).toBe('900');
+    expect(custom.targets[0].label).toBe('900 min');
   });
 
   it('holds load on AMBER and progresses by the custom % on GREEN', () => {
     const s = series(painsEndingToday([1]), dailyLoad(7, 100), TODAY);
-    expect(suggestTarget('AMBER', s, settings()).label).toBe('700');
-    expect(suggestTarget('GREEN', s, settings({ progressionPct: 5 })).label).toBe('735');
+    expect(suggestTarget('AMBER', s, settings(), 'cardio').label).toBe('700 min');
+    expect(suggestTarget('GREEN', s, settings({ progressionPct: 5 }), 'cardio').label).toBe('735 min');
   });
 
   it('uses the 4-week average when the last 7 days had no load', () => {
     const entries = dailyLoad(28, (i) => (i < 21 ? 100 : 0));
-    const s = series([], entries.filter((e) => e.durationMin > 0), TODAY, daysAgo(27));
-    expect(suggestTarget('AMBER', s, settings()).base).toBe(525); // 2100/28*7
+    const s = series([], entries.filter((e) => (e.durationMin ?? 0) > 0), TODAY, daysAgo(27));
+    expect(suggestTarget('AMBER', s, settings(), 'cardio').base).toBe(525); // 2100/28*7
   });
 
   it('handles an empty series', () => {
     const g = evaluateGuidance([], settings());
     expect(g.status).toBe('AMBER');
-    expect(g.target.label).toBe('0');
+    expect(g.targets).toEqual([]);
+  });
+});
+
+describe('strength load stream (tonnage)', () => {
+  it('week-over-week rule fires on strength tonnage independently of cardio', () => {
+    const g = run(painsEndingToday([1]), [
+      strengthEntry(daysAgo(13), 1000),
+      strengthEntry(daysAgo(3), 1110),
+      loadEntry(daysAgo(13), 60),
+      loadEntry(daysAgo(3), 60),
+    ]);
+    expect(state(g, 'wow-increase', 'strength')).toBe('fired');
+    expect(state(g, 'wow-increase', 'cardio')).toBe('ok');
+    expect(g.metrics.streams.strength.wowPct).toBeCloseTo(11);
+    expect(g.status).toBe('AMBER');
+    expect(g.reasons.join(' ')).toMatch(/Strength load over the last 7 days \(1,110 kg\)/);
+    expect(state(run(painsEndingToday([1]), [strengthEntry(daysAgo(13), 1000), strengthEntry(daysAgo(3), 1100)]), 'wow-increase', 'strength')).toBe('ok');
+  });
+
+  it('ACWR is computed per stream', () => {
+    const entries = dailyLoad(28, () => 30) // steady cardio
+      .concat(Array.from({ length: 28 }, (_, i) => strengthEntry(daysAgo(27 - i), i < 21 ? 1000 : 2000)));
+    const g = run([], entries);
+    expect(g.metrics.streams.cardio.acwr).toBeCloseTo(1);
+    expect(g.metrics.streams.strength.acwr).toBe(1.6);
+    expect(state(g, 'acwr-high', 'strength')).toBe('fired');
+    expect(state(g, 'acwr-high', 'cardio')).toBe('ok');
+    expect(g.status).toBe('RED');
+  });
+
+  it('a stream you never use does not block progression', () => {
+    // 28 days of green pain and steady strength work, no cardio at all
+    const g = run(painsEndingToday(Array(28).fill(1)), Array.from({ length: 28 }, (_, i) => strengthEntry(daysAgo(27 - i), 500)));
+    expect(state(g, 'acwr-high', 'cardio')).toBe('ok');
+    expect(g.checks.some((c) => c.stream === 'cardio' && c.state === 'insufficient')).toBe(false);
+    expect(g.status).toBe('GREEN');
+    expect(g.targets.map((t) => t.label)).toEqual(['3,850 kg']); // 3500 × 1.10
+  });
+
+  it('gives one target per stream, kg rounded to 10', () => {
+    const g = run(painsEndingToday([7]), [strengthEntry(TODAY, 4213), loadEntry(TODAY, 100)]);
+    expect(g.targets.map((t) => [t.stream, t.label])).toEqual([
+      ['strength', '2,950–3,370 kg'],
+      ['cardio', '70–80 min'],
+    ]);
   });
 });
 

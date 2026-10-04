@@ -1,6 +1,6 @@
 import { addDays, dateRange } from './dates';
-import { entryTonnage, sessionLoad } from './load';
-import type { DayLog, Entry, ISODate, Swelling } from './types';
+import { cardioLoad, exerciseTonnage } from './load';
+import type { DayLog, Entry, ISODate, LoadStream, Swelling } from './types';
 
 /**
  * One calendar day after gap-filling. Days with neither a daily pain score nor
@@ -22,12 +22,16 @@ export interface DailyPoint {
   painLogged: boolean;
   /** Highest next-morning pain recorded for entries on this day (i.e. felt the following morning). */
   nextMorningPain: number | null;
-  load: number;
-  tonnage: number;
-  durationMin: number;
+  /** Strength load: tonnage in kg (sets × reps × kg; holds count seconds ÷ 3 as reps). */
+  strengthLoad: number;
+  /** Cardio load: minutes. */
+  cardioLoad: number;
   distanceKm: number;
   entryCount: number;
-  loadByType: Record<string, number>;
+  /** Cardio minutes per activity name. */
+  cardioByType: Record<string, number>;
+  /** Strength tonnage per exercise name. */
+  tonnageByExercise: Record<string, number>;
   swelling: Swelling | null;
   entries: Entry[];
 }
@@ -62,12 +66,12 @@ export function emptyPoint(date: ISODate): DailyPoint {
     pain: 0,
     painLogged: false,
     nextMorningPain: null,
-    load: 0,
-    tonnage: 0,
-    durationMin: 0,
+    strengthLoad: 0,
+    cardioLoad: 0,
     distanceKm: 0,
     entryCount: 0,
-    loadByType: {},
+    cardioByType: {},
+    tonnageByExercise: {},
     swelling: null,
     entries: [],
   };
@@ -106,14 +110,21 @@ export function buildDailySeries(
     if (e.date < from || e.date > end) continue;
     const p = get(e.date);
     p.logged = true;
-    const load = sessionLoad(e);
-    p.load += load;
-    p.tonnage += entryTonnage(e);
-    p.durationMin += Number(e.durationMin) || 0;
-    p.distanceKm += Number(e.distanceKm) || 0;
     p.entryCount += 1;
-    const typeKey = e.activityName || e.activityTypeId;
-    p.loadByType[typeKey] = (p.loadByType[typeKey] ?? 0) + load;
+    if (e.kind === 'strength') {
+      for (const x of e.exercises ?? []) {
+        const t = exerciseTonnage(x);
+        p.strengthLoad += t;
+        const name = x.name?.trim() || 'Exercise';
+        p.tonnageByExercise[name] = (p.tonnageByExercise[name] ?? 0) + t;
+      }
+    } else {
+      const minutes = cardioLoad(e);
+      p.cardioLoad += minutes;
+      p.distanceKm += Number(e.distanceKm) || 0;
+      const typeKey = e.activityName || e.activityTypeId;
+      p.cardioByType[typeKey] = (p.cardioByType[typeKey] ?? 0) + minutes;
+    }
     p.maxSessionPain = maxOrNull(p.maxSessionPain, e.painDuring);
     p.nextMorningPain = maxOrNull(p.nextMorningPain, e.painNextMorning);
     p.swelling = maxSwelling(p.swelling, e.swelling ?? null);
@@ -142,6 +153,11 @@ export function pointAt(series: DailyPoint[], date: ISODate): DailyPoint | null 
   );
   const p = series[idx];
   return p && p.date === date ? p : null;
+}
+
+/** Load of a day in the given stream (kg for strength, minutes for cardio). */
+export function streamValue(p: DailyPoint, stream: LoadStream): number {
+  return stream === 'strength' ? p.strengthLoad : p.cardioLoad;
 }
 
 export function previousDate(date: ISODate): ISODate {

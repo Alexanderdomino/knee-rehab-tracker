@@ -1,22 +1,26 @@
 import { addDays, weekStart } from './dates';
 import { painZone } from './settings';
-import type { DailyPoint } from './series';
-import type { ISODate, Settings } from './types';
+import { streamValue, type DailyPoint } from './series';
+import type { ISODate, LoadStream, Settings } from './types';
 
 export interface WeekSummary {
   weekStart: ISODate;
   /** Number of calendar days of this week inside the series (≤ 7). */
   daysInRange: number;
   daysLogged: number;
-  totalLoad: number;
-  totalTonnage: number;
-  /** Week-over-week % change vs previous week, null if no previous week or previous load was 0. */
-  wowPct: number | null;
+  /** Strength tonnage (kg) for the week. */
+  strengthLoad: number;
+  /** Cardio minutes for the week. */
+  cardioLoad: number;
+  /** Week-over-week % change per stream; null if no previous week or its load was 0. */
+  strengthWowPct: number | null;
+  cardioWowPct: number | null;
   /** Average daily pain over days in range (zero-filled days count as 0). */
   avgPain: number;
   maxPain: number;
   daysOverThreshold: number;
-  loadByType: Record<string, number>;
+  cardioByType: Record<string, number>;
+  tonnageByExercise: Record<string, number>;
 }
 
 export function pctChange(prev: number, curr: number): number | null {
@@ -41,33 +45,39 @@ export function weeklySummaries(series: DailyPoint[], settings: Settings): WeekS
         weekStart: ws,
         daysInRange: 0,
         daysLogged: 0,
-        totalLoad: 0,
-        totalTonnage: 0,
-        wowPct: null,
+        strengthLoad: 0,
+        cardioLoad: 0,
+        strengthWowPct: null,
+        cardioWowPct: null,
         avgPain: 0,
         maxPain: 0,
         daysOverThreshold: 0,
-        loadByType: {},
+        cardioByType: {},
+        tonnageByExercise: {},
         painSum: 0,
       };
     }
     current.daysInRange += 1;
     if (p.logged) current.daysLogged += 1;
-    current.totalLoad += p.load;
-    current.totalTonnage += p.tonnage;
+    current.strengthLoad += p.strengthLoad;
+    current.cardioLoad += p.cardioLoad;
     current.painSum += p.pain;
     const dayMax = Math.max(p.pain, p.maxSessionPain ?? 0);
     current.maxPain = Math.max(current.maxPain, dayMax);
     if (dayMax > settings.painThreshold) current.daysOverThreshold += 1;
-    for (const [k, v] of Object.entries(p.loadByType)) {
-      current.loadByType[k] = (current.loadByType[k] ?? 0) + v;
+    for (const [k, v] of Object.entries(p.cardioByType)) {
+      current.cardioByType[k] = (current.cardioByType[k] ?? 0) + v;
+    }
+    for (const [k, v] of Object.entries(p.tonnageByExercise)) {
+      current.tonnageByExercise[k] = (current.tonnageByExercise[k] ?? 0) + v;
     }
   }
   flush();
   for (let i = 1; i < weeks.length; i++) {
     // Only compare consecutive calendar weeks (always true for a continuous series).
     if (addDays(weeks[i - 1].weekStart, 7) === weeks[i].weekStart) {
-      weeks[i].wowPct = pctChange(weeks[i - 1].totalLoad, weeks[i].totalLoad);
+      weeks[i].strengthWowPct = pctChange(weeks[i - 1].strengthLoad, weeks[i].strengthLoad);
+      weeks[i].cardioWowPct = pctChange(weeks[i - 1].cardioLoad, weeks[i].cardioLoad);
     }
   }
   return weeks;
@@ -98,9 +108,9 @@ export interface AcwrPoint {
   acwr: number | null;
 }
 
-/** Rolling 7-day (acute) and 28-day (chronic) average daily load and their ratio. */
-export function acwrSeries(series: DailyPoint[]): AcwrPoint[] {
-  const loads = series.map((p) => p.load);
+/** Rolling 7-day (acute) and 28-day (chronic) average daily load of one stream, and their ratio. */
+export function acwrSeries(series: DailyPoint[], stream: LoadStream): AcwrPoint[] {
+  const loads = series.map((p) => streamValue(p, stream));
   const acute = rollingAverage(loads, ACUTE_DAYS);
   const chronic = rollingAverage(loads, CHRONIC_DAYS);
   return series.map((p, i) => {
@@ -115,12 +125,12 @@ export function acwrSeries(series: DailyPoint[]): AcwrPoint[] {
   });
 }
 
-/** Sum of load over the `days` days ending at index `endIdx` (inclusive); null if out of range. */
-export function windowLoad(series: DailyPoint[], endIdx: number, days: number): number | null {
+/** Sum of one stream's load over the `days` days ending at index `endIdx` (inclusive); null if out of range. */
+export function windowLoad(series: DailyPoint[], endIdx: number, days: number, stream: LoadStream): number | null {
   const startIdx = endIdx - days + 1;
   if (startIdx < 0 || endIdx >= series.length) return null;
   let sum = 0;
-  for (let i = startIdx; i <= endIdx; i++) sum += series[i].load;
+  for (let i = startIdx; i <= endIdx; i++) sum += streamValue(series[i], stream);
   return sum;
 }
 
@@ -182,12 +192,12 @@ export interface ToleranceSummary {
  * day has a real pain observation are used, so zero-filled days don't masquerade
  * as pain-free evidence.
  */
-export function loadVsNextDayPain(series: DailyPoint[], settings: Settings): ToleranceSummary {
+export function loadVsNextDayPain(series: DailyPoint[], settings: Settings, stream: LoadStream): ToleranceSummary {
   const points: TolerancePoint[] = [];
   for (let i = 0; i < series.length - 1; i++) {
     const next = series[i + 1];
     if (!next.painLogged) continue;
-    points.push({ date: series[i].date, load: series[i].load, nextDayPain: next.pain });
+    points.push({ date: series[i].date, load: streamValue(series[i], stream), nextDayPain: next.pain });
   }
   const green = points.filter((p) => painZone(p.nextDayPain, settings) === 'green');
   const greenRange = green.length

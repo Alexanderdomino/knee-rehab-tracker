@@ -41,7 +41,7 @@ service cloud.firestore {
     // users/{uid}/entries/{id}: one activity session.
     function validEntry() {
       let d = request.resource.data;
-      return d.keys().hasAll(['date', 'activityTypeId', 'activityName', 'kind', 'durationMin', 'rpe', 'swelling'])
+      return d.keys().hasAll(['date', 'activityTypeId', 'activityName', 'kind', 'swelling'])
         && d.keys().hasOnly([
           'date', 'activityTypeId', 'activityName', 'kind', 'durationMin', 'distanceKm',
           'exercises', 'rpe', 'painDuring', 'painNextMorning', 'swelling', 'notes',
@@ -51,8 +51,11 @@ service cloud.firestore {
         && d.activityTypeId is string && d.activityTypeId.size() > 0 && d.activityTypeId.size() <= 64
         && d.activityName is string && d.activityName.size() <= 100
         && d.kind in ['strength', 'cardio']
-        && inRange(d.durationMin, 0, 1440)
-        && inRange(d.rpe, 1, 10)
+        // Cardio sessions need a duration (their load); strength load comes from exercises.
+        && (d.kind == 'strength' || inRange(d.get('durationMin', null), 0, 1440))
+        && (!('durationMin' in d) || d.durationMin == null || inRange(d.durationMin, 0, 1440))
+        // RPE is no longer collected; entries logged before may still carry it.
+        && (!('rpe' in d) || d.rpe == null || inRange(d.rpe, 1, 10))
         && optionalPain(d, 'painDuring')
         && optionalPain(d, 'painNextMorning')
         && d.swelling in ['none', 'mild', 'moderate']

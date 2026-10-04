@@ -16,14 +16,13 @@ const FIELDS: { key: NumKey; label: string; hint?: string; step?: string }[] = [
   { key: 'greenMax', label: 'Green zone: pain up to', hint: 'Pain 0 to this value is green' },
   { key: 'amberMax', label: 'Amber zone: pain up to', hint: 'Above this is red' },
   { key: 'painThreshold', label: 'Pain threshold', hint: 'Daily or session pain above this → reduce load' },
-  { key: 'maxWeeklyIncreasePct', label: 'Max week-over-week load increase (%)' },
+  { key: 'maxWeeklyIncreasePct', label: 'Max week-over-week load increase (%)', hint: 'Checked separately for strength (kg) and cardio (min)' },
   { key: 'acwrLower', label: 'ACWR lower limit', step: '0.05' },
   { key: 'acwrUpper', label: 'ACWR upper limit', step: '0.05' },
   { key: 'reductionMinPct', label: 'Suggested reduction, min (%)' },
   { key: 'reductionMaxPct', label: 'Suggested reduction, max (%)' },
   { key: 'progressionPct', label: 'Suggested progression (%)' },
   { key: 'greenDaysRequired', label: 'Logged green days before progressing' },
-  { key: 'defaultStrengthDurationMin', label: 'Default strength session duration (min)' },
 ]
 
 function slug(name: string) {

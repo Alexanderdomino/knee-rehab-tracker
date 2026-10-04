@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
-import { formatLong, isISODate, sessionLoad, tonnage, type ActivityType, type Entry, type Exercise, type Settings, type Swelling } from '../domain'
+import { formatLoad, formatLong, isISODate, tonnage, type ActivityType, type Entry, type Exercise, type Settings, type Swelling } from '../domain'
 import { addEntry, deleteEntry, updateEntry, type EntryInput } from '../data/repo'
 import { Icon } from '../components/Icon'
 import { PageHeader } from '../components/Layout'
-import { NumberScale, PainScale, Segmented } from '../components/PainScale'
+import { PainScale, Segmented } from '../components/PainScale'
 import { latestEntry } from '../lib/entries'
 import { useGoBack } from '../lib/useGoBack'
 import { useData } from '../state/data'
@@ -15,6 +15,9 @@ interface ExerciseDraft {
   sets: string
   reps: string
   loadKg: string
+  /** Isometric hold: `holdSec` replaces reps. */
+  hold: boolean
+  holdSec: string
 }
 
 interface Draft {
@@ -23,7 +26,6 @@ interface Draft {
   durationMin: string
   distanceKm: string
   exercises: ExerciseDraft[]
-  rpe: number | null
   painDuring: number | null
   painNextMorning: number | null
   swelling: Swelling
@@ -33,17 +35,23 @@ interface Draft {
 const DURATIONS = [15, 20, 30, 45, 60, 90]
 const num = (s: string) => (s.trim() === '' ? NaN : Number(s.replace(',', '.')))
 const str = (n: number | null | undefined) => (n === null || n === undefined || Number.isNaN(n) ? '' : String(n))
-const toExerciseDraft = (x: Exercise): ExerciseDraft => ({ name: x.name, sets: str(x.sets), reps: str(x.reps), loadKg: str(x.loadKg) })
-const blankExercise = (): ExerciseDraft => ({ name: '', sets: '3', reps: '10', loadKg: '' })
+const toExerciseDraft = (x: Exercise): ExerciseDraft => ({
+  name: x.name,
+  sets: str(x.sets),
+  reps: x.holdSec ? '10' : str(x.reps),
+  loadKg: str(x.loadKg),
+  hold: !!x.holdSec,
+  holdSec: x.holdSec ? str(x.holdSec) : '30',
+})
+const blankExercise = (): ExerciseDraft => ({ name: '', sets: '3', reps: '10', loadKg: '', hold: false, holdSec: '30' })
 
 function draftFrom(e: Entry, overrides: Partial<Draft> = {}): Draft {
   return {
     date: e.date,
     activityTypeId: e.activityTypeId,
-    durationMin: str(e.durationMin),
+    durationMin: e.kind === 'cardio' ? str(e.durationMin) : '30',
     distanceKm: str(e.distanceKm ?? null),
     exercises: (e.exercises ?? []).map(toExerciseDraft),
-    rpe: e.rpe,
     painDuring: e.painDuring ?? null,
     painNextMorning: e.painNextMorning ?? null,
     swelling: e.swelling,
@@ -87,7 +95,6 @@ function initialDraft(
   existing: Entry | null,
   entries: Entry[],
   types: ActivityType[],
-  defaultStrengthDuration: number,
   today: string,
   params: URLSearchParams,
 ): Draft {
@@ -100,7 +107,7 @@ function initialDraft(
     if (last) return draftFrom(last, fresh)
   }
   const typeId = params.get('type') ?? latestEntry(entries)?.activityTypeId ?? types[0]?.id ?? 'other'
-  // Smart defaults: copy volume/intensity from the last session of this type.
+  // Smart defaults: copy exercises / duration from the last session of this type.
   const lastOfType = latestEntry(entries, typeId)
   if (lastOfType) return draftFrom(lastOfType, { ...fresh, swelling: 'none' })
   const type = types.find((t) => t.id === typeId)
@@ -108,10 +115,9 @@ function initialDraft(
   return {
     ...fresh,
     activityTypeId: typeId,
-    durationMin: strength ? String(defaultStrengthDuration) : '30',
+    durationMin: '30',
     distanceKm: '',
     exercises: strength ? [blankExercise()] : [],
-    rpe: 5,
     swelling: 'none',
   }
 }
@@ -135,8 +141,7 @@ function EntryFormInner({
   const toast = useToast()
   const write = useWrite()
   const types = settings.activityTypes
-  const defaultStrengthDuration = settings.defaultStrengthDurationMin
-  const [d, setD] = useState<Draft>(() => initialDraft(existing, entries, types, defaultStrengthDuration, today, params))
+  const [d, setD] = useState<Draft>(() => initialDraft(existing, entries, types, today, params))
   const [errors, setErrors] = useState<string[]>([])
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((prev) => ({ ...prev, [k]: v }))
 
@@ -151,12 +156,15 @@ function EntryFormInner({
   const chooseType = (t: ActivityType) => {
     setD((prev) => {
       const next = { ...prev, activityTypeId: t.id }
+      const lastOfType = latestEntry(entries, t.id)
       if (t.kind === 'strength') {
         if (prev.exercises.length === 0) {
-          const lastOfType = latestEntry(entries, t.id)
           next.exercises = lastOfType?.exercises?.length ? lastOfType.exercises.map(toExerciseDraft) : [blankExercise()]
         }
-        if (!prev.durationMin) next.durationMin = String(defaultStrengthDuration)
+      } else {
+        // Don't carry one activity's distance over to another (e.g. a ride's km to a walk).
+        next.distanceKm = lastOfType?.kind === 'cardio' ? str(lastOfType.distanceKm ?? null) : ''
+        if (lastOfType?.kind === 'cardio' && lastOfType.durationMin) next.durationMin = str(lastOfType.durationMin)
       }
       return next
     })
@@ -167,18 +175,22 @@ function EntryFormInner({
     .map((x) => ({
       name: x.name.trim() || 'Exercise',
       sets: num(x.sets) || 0,
-      reps: num(x.reps) || 0,
+      reps: x.hold ? 0 : num(x.reps) || 0,
       loadKg: num(x.loadKg) || 0,
+      holdSec: x.hold ? num(x.holdSec) || 0 : null,
     }))
   const duration = num(d.durationMin)
-  const load = sessionLoad({ durationMin: Number.isFinite(duration) ? duration : 0, rpe: d.rpe ?? 0 })
-  const tons = tonnage(exercises)
+  // Load preview: tonnage for strength, minutes for cardio.
+  const loadLabel = strength
+    ? formatLoad(tonnage(exercises), 'strength')
+    : formatLoad(Number.isFinite(duration) ? duration : 0, 'cardio')
 
   const save = () => {
     const errs: string[] = []
     if (!type) errs.push('Choose an activity type.')
-    if (!Number.isFinite(duration) || duration <= 0 || duration > 1440) errs.push('Duration must be 1–1440 minutes.')
-    if (d.rpe === null) errs.push('Choose an RPE (1–10).')
+    if (!strength && (!Number.isFinite(duration) || duration <= 0 || duration > 1440)) errs.push('Duration must be 1–1440 minutes.')
+    if (strength && exercises.length === 0) errs.push('Add at least one exercise.')
+    if (strength && exercises.some((x) => x.holdSec != null && !(x.holdSec > 0))) errs.push('Hold time must be more than 0 seconds.')
     const dist = num(d.distanceKm)
     if (d.distanceKm.trim() && (!Number.isFinite(dist) || dist < 0 || dist > 1000)) errs.push('Distance must be 0–1000 km.')
     if (!isISODate(d.date)) errs.push('Pick a valid date.')
@@ -191,10 +203,9 @@ function EntryFormInner({
       activityTypeId: type.id,
       activityName: type.name,
       kind: type.kind,
-      durationMin: duration,
+      durationMin: strength ? null : duration,
       distanceKm: strength || !d.distanceKm.trim() ? null : dist,
       exercises: strength ? exercises : [],
-      rpe: d.rpe!,
       painDuring: d.painDuring,
       painNextMorning: d.painNextMorning,
       swelling: d.swelling,
@@ -205,7 +216,7 @@ function EntryFormInner({
       toast('Session updated')
     } else {
       write(addEntry(uid, input).done)
-      toast(`${type.name} logged · load ${load}`)
+      toast(`${type.name} logged · ${loadLabel}`)
     }
     goBack(d.date === today ? '/' : `/day/${d.date}`)
   }
@@ -261,9 +272,10 @@ function EntryFormInner({
       </section>
 
       <section className="card space-y-3">
+        {!strength && (
         <div>
           <label className="label" htmlFor="duration">
-            Duration (min){strength && ' — used for session load'}
+            Duration (min)
           </label>
           <div className="mb-2 grid grid-cols-6 gap-1.5">
             {DURATIONS.map((m) => (
@@ -289,6 +301,7 @@ function EntryFormInner({
             onChange={(e) => set('durationMin', e.target.value)}
           />
         </div>
+        )}
 
         {!strength && (
           <label className="block">
@@ -305,10 +318,10 @@ function EntryFormInner({
 
         {strength && (
           <div>
-            <span className="label">Exercises (sets × reps × kg)</span>
+            <span className="label">Exercises — load = sets × reps × kg (a hold counts its seconds ÷ 3 as reps)</span>
             <div className="space-y-2">
               {d.exercises.map((x, i) => {
-                const upd = (k: keyof ExerciseDraft, v: string) =>
+                const upd = <K extends keyof ExerciseDraft>(k: K, v: ExerciseDraft[K]) =>
                   set(
                     'exercises',
                     d.exercises.map((y, j) => (j === i ? { ...y, [k]: v } : y)),
@@ -332,19 +345,33 @@ function EntryFormInner({
                         <Icon name="trash" className="mx-auto" />
                       </button>
                     </div>
+                    <div className="mt-2">
+                      <Segmented
+                        label={`Exercise ${i + 1} type`}
+                        value={x.hold ? 'hold' : 'reps'}
+                        onChange={(v) => upd('hold', v === 'hold')}
+                        options={[
+                          { value: 'reps', label: 'Reps' },
+                          { value: 'hold', label: 'Hold (seconds)' },
+                        ]}
+                      />
+                    </div>
                     <div className="mt-2 grid grid-cols-3 gap-2">
-                      {(['sets', 'reps', 'loadKg'] as const).map((k) => (
-                        <label key={k} className="block">
-                          <span className="text-xs text-stone-500">{k === 'loadKg' ? 'kg' : k}</span>
-                          <input
-                            className="input text-center"
-                            inputMode="decimal"
-                            aria-label={`Exercise ${i + 1} ${k === 'loadKg' ? 'kg' : k}`}
-                            value={x[k]}
-                            onChange={(e) => upd(k, e.target.value)}
-                          />
-                        </label>
-                      ))}
+                      {(['sets', x.hold ? 'holdSec' : 'reps', 'loadKg'] as const).map((k) => {
+                        const label = k === 'loadKg' ? 'kg' : k === 'holdSec' ? 'seconds' : k
+                        return (
+                          <label key={k} className="block">
+                            <span className="text-xs text-stone-500">{label}</span>
+                            <input
+                              className="input text-center"
+                              inputMode="decimal"
+                              aria-label={`Exercise ${i + 1} ${label}`}
+                              value={x[k]}
+                              onChange={(e) => upd(k, e.target.value)}
+                            />
+                          </label>
+                        )
+                      })}
                     </div>
                   </div>
                 )
@@ -355,11 +382,6 @@ function EntryFormInner({
             </div>
           </div>
         )}
-      </section>
-
-      <section className="card space-y-2">
-        <span className="label">Intensity (RPE)</span>
-        <NumberScale value={d.rpe} onChange={(v) => set('rpe', v)} label="RPE" testId="rpe" />
       </section>
 
       <section className="card space-y-4">
@@ -407,9 +429,8 @@ function EntryFormInner({
       <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-10 border-t border-stone-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-900/95">
         <div className="mx-auto flex max-w-xl items-center gap-3">
           <div className="text-sm leading-tight">
-            <span className="block text-xs text-stone-500">Session load</span>
-            <span className="text-lg font-bold tabular-nums" data-testid="form-load">{load}</span>
-            {strength && tons > 0 && <span className="ml-1 text-xs text-stone-500">· {Math.round(tons)} kg</span>}
+            <span className="block text-xs text-stone-500">{strength ? 'Strength load' : 'Cardio load'}</span>
+            <span className="text-lg font-bold tabular-nums" data-testid="form-load">{loadLabel}</span>
           </div>
           <button type="submit" className="btn-primary flex-1 text-lg">
             {existing ? 'Save changes' : 'Save session'}

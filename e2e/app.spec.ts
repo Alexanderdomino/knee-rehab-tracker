@@ -64,29 +64,29 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   // --- Log a session ---
   await page.getByRole('button', { name: 'Cycling', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Log session', exact: true })).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: /RPE/ })).toHaveCount(0)
   await page.getByRole('button', { name: '45', exact: true }).click()
-  await page.getByRole('radio', { name: 'RPE 6', exact: true }).click()
   await page.getByLabel('Distance (km, optional)').fill('15')
-  await expect(page.getByTestId('form-load')).toHaveText('270')
+  await expect(page.getByTestId('form-load')).toHaveText('45 min')
   await page.getByRole('button', { name: 'Save session' }).click()
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
   const todayList = page.getByTestId('entry-list')
   await expect(todayList.getByTestId('entry-row')).toHaveCount(1)
   await expect(todayList).toContainText('Cycling')
-  await expect(todayList).toContainText('270')
+  await expect(todayList).toContainText('45 min · 15 km')
 
   // --- Edit it ---
   await todayList.getByTestId('entry-row').first().click()
   await expect(page.getByRole('heading', { name: 'Edit session', exact: true })).toBeVisible()
-  await page.getByRole('radio', { name: 'RPE 7', exact: true }).click()
+  await page.getByRole('button', { name: '60', exact: true }).click()
   await page.getByRole('radio', { name: 'Pain during 2', exact: true }).click()
   await page.getByRole('button', { name: 'Save changes' }).click()
-  await expect(todayList).toContainText('315')
+  await expect(todayList).toContainText('60 min · 15 km')
   await expect(todayList).toContainText('pain 2')
 
   // --- Repeat last session ---
   await page.getByTestId('repeat-last').click()
-  await expect(page.getByRole('radio', { name: 'RPE 7', exact: true })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('form-load')).toHaveText('60 min')
   await page.getByRole('button', { name: 'Save session' }).click()
   await expect(todayList.getByTestId('entry-row')).toHaveCount(2)
 
@@ -99,7 +99,6 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   await page.getByRole('link', { name: 'Add session' }).click()
   await page.getByRole('radio', { name: 'Walking', exact: true }).click()
   await page.getByRole('button', { name: '30', exact: true }).click()
-  await page.getByRole('radio', { name: 'RPE 3', exact: true }).click()
   await page.getByRole('button', { name: 'Save session' }).click()
   await expect(page.getByTestId('entry-list')).toContainText('Walking')
 
@@ -117,7 +116,7 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   const todayRow = page.locator(`[data-testid=history-row][data-date="${today}"]`)
   await expect(todayRow).toHaveAttribute('data-logged', 'true')
   await expect(todayRow.getByTestId('history-pain')).toHaveText('3')
-  await expect(todayRow.getByTestId('history-load')).toHaveText('630')
+  await expect(todayRow.getByTestId('history-load')).toHaveText('120 min')
   const gapRow = page.locator(`[data-testid=history-row][data-date="${twoDaysAgo}"]`)
   await expect(gapRow).toHaveAttribute('data-logged', 'false')
   await expect(gapRow).toContainText('Not logged')
@@ -130,7 +129,7 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   await page.getByRole('button', { name: 'Delete session' }).click()
   await expect(page.getByTestId('entry-row')).toHaveCount(1)
   await page.getByRole('button', { name: 'Back' }).click()
-  await expect(todayRow.getByTestId('history-load')).toHaveText('315')
+  await expect(todayRow.getByTestId('history-load')).toHaveText('60 min')
 
   // --- Statistics ---
   await nav(page, 'Stats')
@@ -138,12 +137,13 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   await expect(page.getByTestId('load-pain-chart').locator('.recharts-bar-rectangle').first()).toBeVisible()
   const weekly = page.getByTestId('weekly-table')
   await expect(weekly).toBeVisible()
-  // Newest week first; yesterday's walk (90) is in the same ISO week unless today is Monday.
+  // Newest week first; yesterday's 30 min walk is in the same ISO week unless today is Monday.
   const isMonday = new Date().getDay() === 1
-  await expect(weekly.locator('tbody tr').first().locator('td').nth(1)).toHaveText(isMonday ? '315' : '405')
+  await expect(weekly.getByTestId('week-cardio').first()).toHaveText(isMonday ? '60' : '90')
+  await expect(weekly.getByTestId('week-strength').first()).toHaveText('0')
   await expect(page.getByTestId('acwr-chart')).toBeVisible()
   await expect(page.getByTestId('tolerance-summary')).toBeVisible()
-  await expect(page.getByTestId('breakdown-chart')).toBeVisible()
+  await expect(page.getByTestId('breakdown-cardio')).toBeVisible()
   await expect(page.getByTestId('streak-longest')).toHaveText('1')
   await expect(page.getByTestId('timeline')).toContainText('AMBER')
 
@@ -156,7 +156,7 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   await expect(status).toHaveAttribute('data-status', 'RED')
   await expect(page.getByTestId('status-headline')).toHaveText('Reduce load')
   await expect(status).toContainText('above your pain threshold of 2')
-  await expect(page.getByTestId('status-target')).toContainText('load units')
+  await expect(page.getByTestId('status-target')).toContainText('min')
 
   // --- CSV export ---
   await nav(page, 'Settings')
@@ -168,24 +168,50 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   expect(csv[0]).toMatch(/^date,logged,daily_pain/)
   expect(csv).toHaveLength(1 + 4)
   expect(csv[1]).toMatch(new RegExp(`^${threeDaysAgo},yes,1,daily,0,`))
-  expect(csv[2]).toMatch(new RegExp(`^${twoDaysAgo},no,0,not_logged,0,0,0,0,0,`))
-  expect(csv[3]).toMatch(new RegExp(`^${yesterday},yes,0,not_logged,90,30,`))
-  expect(csv[4]).toMatch(new RegExp(`^${today},yes,3,daily,315,45,15,0,1,Cycling,2,`))
+  expect(csv[2]).toMatch(new RegExp(`^${twoDaysAgo},no,0,not_logged,0,0,0,0,`))
+  expect(csv[3]).toMatch(new RegExp(`^${yesterday},yes,0,not_logged,0,30,0,1,Walking,`))
+  expect(csv[4]).toMatch(new RegExp(`^${today},yes,3,daily,0,60,15,1,Cycling,2,`))
 })
 
-test('validation and dark mode', async ({ page }) => {
+test('strength session with an isometric hold, validation and dark mode', async ({ page }) => {
   await signIn(page)
   await page.getByRole('button', { name: 'Knee rehab / strength', exact: true }).click()
+  // No duration and no RPE for strength: load comes from the exercises
+  await expect(page.locator('#duration')).toHaveCount(0)
   await expect(page.getByTestId('exercise-row')).toHaveCount(1)
-  await page.getByLabel('Exercise 1 name').fill('Leg press')
-  await page.getByLabel('Exercise 1 kg').fill('60')
-  await expect(page.getByTestId('form-load')).toHaveText('225') // default 45 min × RPE 5
-  await page.locator('#duration').fill('')
+
+  // Validation: a strength session needs an exercise
+  await page.getByRole('button', { name: 'Remove exercise 1' }).click()
   await page.getByRole('button', { name: 'Save session' }).click()
-  await expect(page.getByRole('alert')).toContainText('Duration must be')
-  await page.locator('#duration').fill('40')
+  await expect(page.getByRole('alert')).toContainText('Add at least one exercise')
+
+  // Isometric leg extension: 4 × 45 s @ 20 kg → 4 × (45 / 3) × 20 = 1,200 kg
+  await page.getByRole('button', { name: 'Add exercise' }).click()
+  await page.getByLabel('Exercise 1 name').fill('Iso leg extension')
+  await page.getByRole('radiogroup', { name: 'Exercise 1 type' }).getByRole('radio', { name: 'Hold (seconds)' }).click()
+  await page.getByLabel('Exercise 1 sets').fill('4')
+  await page.getByLabel('Exercise 1 seconds').fill('45')
+  await page.getByLabel('Exercise 1 kg').fill('20')
+  await expect(page.getByTestId('form-load')).toHaveText('1,200 kg')
+
+  // Romanian deadlift: 3 × 8 @ 60 kg = 1,440 kg
+  await page.getByRole('button', { name: 'Add exercise' }).click()
+  await page.getByLabel('Exercise 2 name').fill('Romanian deadlift')
+  await page.getByLabel('Exercise 2 sets').fill('3')
+  await page.getByLabel('Exercise 2 reps').fill('8')
+  await page.getByLabel('Exercise 2 kg').fill('60')
+  await expect(page.getByTestId('form-load')).toHaveText('2,640 kg')
   await page.getByRole('button', { name: 'Save session' }).click()
-  await expect(page.getByTestId('entry-list')).toContainText('1800 kg')
+
+  const list = page.getByTestId('entry-list')
+  await expect(list).toContainText('Iso leg extension 4×45 s @ 20 kg')
+  await expect(list).toContainText('Romanian deadlift 3×8 @ 60 kg')
+  await expect(list).toContainText('2,640')
+
+  // Editing keeps the hold
+  await list.getByTestId('entry-row').first().click()
+  await expect(page.getByLabel('Exercise 1 seconds')).toHaveValue('45')
+  await page.getByRole('button', { name: 'Back' }).click()
 
   await nav(page, 'Settings')
   await page.getByRole('radio', { name: 'Dark' }).click()

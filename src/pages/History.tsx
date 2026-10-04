@@ -1,5 +1,5 @@
 import { Link } from 'react-router'
-import { formatLong, painZone, type DailyPoint, type Settings } from '../domain'
+import { formatLoad, formatLong, painZone, type DailyPoint, type Settings } from '../domain'
 import { Icon } from '../components/Icon'
 import { PageHeader } from '../components/Layout'
 import { ZONE_FILL } from '../components/zone'
@@ -42,7 +42,7 @@ function HistoryRow({ p, settings }: { p: DailyPoint; settings: Settings }) {
           </span>
           <span className="flex-1">
             <span className="block text-sm font-medium">{formatLong(p.date)}</span>
-            <span className="block text-xs">Not logged · counted as pain 0, load 0</span>
+            <span className="block text-xs">Not logged · counted as pain 0, no load</span>
           </span>
           <Icon name="plus" className="text-stone-400" />
         </Link>
@@ -75,9 +75,9 @@ function HistoryRow({ p, settings }: { p: DailyPoint; settings: Settings }) {
             {p.swelling && p.swelling !== 'none' && ` · ${p.swelling} swelling`}
           </span>
         </span>
-        <span className="text-right">
-          <span className="block font-bold tabular-nums" data-testid="history-load">{p.load}</span>
-          <span className="block text-xs text-stone-500">load</span>
+        <span className="text-right text-sm leading-tight tabular-nums" data-testid="history-load">
+          {p.strengthLoad > 0 && <span className="block font-bold">{formatLoad(p.strengthLoad, 'strength')}</span>}
+          {p.cardioLoad > 0 && <span className="block font-bold">{formatLoad(p.cardioLoad, 'cardio')}</span>}
         </span>
       </Link>
     </li>

@@ -20,13 +20,16 @@ export const DEFAULT_SETTINGS: Settings = {
   reductionMaxPct: 30,
   progressionPct: 10,
   greenDaysRequired: 7,
-  defaultStrengthDurationMin: 45,
   activityTypes: DEFAULT_ACTIVITY_TYPES,
 };
 
 /** Merge a (possibly partial / older) stored settings doc over defaults. */
 export function withDefaults(partial: Partial<Settings> | undefined | null): Settings {
-  const merged = { ...DEFAULT_SETTINGS, ...(partial ?? {}) };
+  // Drop keys from older settings docs (e.g. defaultStrengthDurationMin) that are no longer used.
+  const known = Object.fromEntries(
+    Object.entries(partial ?? {}).filter(([k]) => k in DEFAULT_SETTINGS),
+  ) as Partial<Settings>;
+  const merged = { ...DEFAULT_SETTINGS, ...known };
   if (!Array.isArray(merged.activityTypes) || merged.activityTypes.length === 0) {
     merged.activityTypes = DEFAULT_ACTIVITY_TYPES;
   }
@@ -55,7 +58,6 @@ export function validateSettings(s: Settings): string[] {
   if (!intIn(s.progressionPct, 0, 100)) errors.push('Progression must be 0–100%.');
   if (!Number.isInteger(s.greenDaysRequired) || s.greenDaysRequired < 1 || s.greenDaysRequired > 60)
     errors.push('Green days required must be a whole number 1–60.');
-  if (!intIn(s.defaultStrengthDurationMin, 1, 600)) errors.push('Default strength duration must be 1–600 min.');
   if (s.activityTypes.length === 0) errors.push('Keep at least one activity type.');
   return errors;
 }

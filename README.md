@@ -87,17 +87,23 @@ All data lives under `users/{uid}/` and only that user can read or write it (see
 | Path                        | Content                                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `days/{YYYY-MM-DD}`         | `{ date, pain }`: one overall daily pain score 0–10. Separate from sessions, so rest days can have a score.  |
-| `entries/{autoId}`          | One session: `date, activityTypeId, activityName, kind (strength/cardio), durationMin, distanceKm?, exercises[] (name, sets, reps, loadKg), rpe 1–10, painDuring?, painNextMorning?, swelling (none/mild/moderate), notes` |
+| `entries/{autoId}`          | One session: `date, activityTypeId, activityName, kind (strength/cardio), durationMin (cardio), distanceKm?, exercises[] (name, sets, reps, loadKg, holdSec?), painDuring?, painNextMorning?, swelling (none/mild/moderate), notes` |
 | `settings/main`             | Thresholds and the editable activity-type list                                                               |
 
-The rules validate value ranges: pain 0–10, RPE 1–10, duration 0–1440, swelling enum, date-id format, and they reject unknown fields.
+The rules validate value ranges: pain 0–10, duration 0–1440 (required for cardio), legacy RPE 1–10 if present, swelling enum, date-id format, and they reject unknown fields.
 
 **Metrics**
 
-- **Session load** = duration (min) × RPE. Strength sessions always have a duration (default 45 min, editable per session and
-  in Settings), so every session produces a load.
-- **Tonnage** = Σ sets × reps × kg, tracked separately for strength sessions.
-- **Acute load** = 7-day rolling average daily load. **Chronic load** = 28-day rolling average. **ACWR** = acute / chronic.
+There's no effort rating (RPE) to fill in. Load is measured from what you did, as two separate streams that are never added together:
+
+- **Strength load** = tonnage in kg = Σ sets × reps × kg. Heavier work counts for more on its own: a Romanian deadlift at 3 × 8 @ 60 kg (1,440 kg)
+  outweighs a light accessory exercise. **Isometric holds** log seconds instead of reps and count *seconds ÷ 3* as reps, so 4 × 45 s @ 20 kg =
+  4 × 15 × 20 = 1,200 kg. Bodyweight-only exercises (0 kg) add 0.
+- **Cardio load** = minutes (distance is recorded but not used for load).
+- **Acute load** = 7-day rolling average daily load. **Chronic load** = 28-day rolling average. **ACWR** = acute / chronic. All of these are computed
+  per stream.
+
+Entries logged before RPE was removed keep their stored RPE, but it's no longer used.
 
 **Untracked days.** Any calendar day with no daily score and no sessions is filled in at read time as pain 0 / load 0. No placeholder documents are
 written. This applies everywhere: history, charts, weekly totals and averages, rolling loads, and the daily CSV (one row per day from your first log to
@@ -126,21 +132,21 @@ morning.
 | Next-morning jump | Next-morning pain after the previous day's sessions is **≥ 2 points higher** than that day's pain | No next-morning value, or no pain logged that day |
 | 3 amber days | The last **3 logged pain days** (gaps skipped) are all amber or worse (pain > green cut-off) | Fewer than 3 logged pain days |
 | Moderate swelling | Any session on the reference day reports **moderate** swelling | — |
-| ACWR high | ACWR **> upper limit** (default 1.3) | Fewer than 28 days of history, or no load in 28 days |
+| ACWR high | Strength **or** cardio ACWR **> upper limit** (default 1.3) | Fewer than 28 days of history (a stream with no load in 28 days is skipped) |
 
 ### AMBER: Hold current load (any of, if no RED)
 
 | Rule | Fires when | Not enough data when |
 | --- | --- | --- |
 | Amber pain today | Reference-day pain is in the amber zone (or worse) | No pain today/yesterday |
-| Week-over-week increase | Load of the last 7 days vs the 7 days before rises **> max %** (default 10%) | Fewer than 14 days of history, or the previous 7 days had 0 load |
+| Week-over-week increase | Strength (kg) **or** cardio (min) over the last 7 days vs the 7 days before rises **> max %** (default 10%) | Fewer than 14 days of history, or that stream's previous 7 days had 0 load |
 | Rising pain trend | Least-squares slope of pain over the **last 7 logged pain days** (x = actual calendar day) is **> 0** | Fewer than 7 logged pain days |
 
 ### GREEN: OK to progress (only if)
 
 1. No RED or AMBER rule fires, **and**
 2. the last **N logged pain days** (default 7) were all green. Not-logged days are skipped and **don't count toward N**, **and**
-3. ACWR is within the lower and upper limits (0.8–1.3). If there isn't enough data for ACWR yet, the card says so and still allows GREEN.
+3. ACWR is within the lower and upper limits (0.8–1.3) for every stream you use. A stream with no load in the last 4 weeks is skipped. If there isn't enough data for ACWR yet, the card says so and still allows GREEN.
 
 If the green requirements aren't met (e.g. only 5 of 7 logged green days, or ACWR below the lower limit) the status is AMBER,
 and the card explains why.
@@ -150,9 +156,10 @@ Thresholds are compared strictly at the boundaries: pain *equal to* the threshol
 
 ### Suggested target for the next 7 days
 
-Base = total load over the last 7 days. If that's 0, the 28-day weekly average is used instead.
+One target per stream you use (e.g. *Strength 6,300–7,200 kg · Cardio 98–112 min*). Base = that stream's load over the last 7 days. If
+that's 0, its 28-day weekly average is used instead. Kilos are rounded to the nearest 10.
 
-- **RED:** base × (1 − 30%) … base × (1 − 20%), shown as a range (e.g. `700–800`)
+- **RED:** base × (1 − 30%) … base × (1 − 20%), shown as a range (e.g. `700–800 min`)
 - **AMBER:** base (hold)
 - **GREEN:** base × (1 + 10%)
 
@@ -206,7 +213,7 @@ Firestore's offline cache means you can log entries without a connection; they s
 src/
   domain/        pure logic + unit tests (no React/Firebase)
     dates.ts       local calendar-date helpers (DST-safe)
-    load.ts        session load, tonnage
+    load.ts        strength load (tonnage, holds), cardio load (minutes)
     series.ts      gap-filled daily series
     aggregate.ts   weekly summaries, rolling averages, ACWR, streaks, load-vs-next-day-pain
     guidance.ts    rules engine, targets, status timeline

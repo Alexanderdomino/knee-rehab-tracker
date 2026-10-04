@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
-import { sessionLoad, type Entry } from '../domain'
-import { entrySummary } from '../lib/entries'
+import { STREAM_UNIT, type Entry } from '../domain'
+import { entryLoad, entrySummary } from '../lib/entries'
 import { Icon } from './Icon'
 
 export function EntryList({ entries }: { entries: Entry[] }) {
@@ -20,8 +20,8 @@ export function EntryList({ entries }: { entries: Entry[] }) {
               </p>
             </div>
             <span className="text-right">
-              <span className="block text-lg font-bold tabular-nums">{sessionLoad(e)}</span>
-              <span className="block text-xs text-stone-500">load</span>
+              <span className="block text-lg font-bold tabular-nums">{Math.round(entryLoad(e).value).toLocaleString('en-US')}</span>
+              <span className="block text-xs text-stone-500">{STREAM_UNIT[entryLoad(e).stream]}</span>
             </span>
             <Icon name="chevron" className="text-stone-400" />
           </Link>
