@@ -195,7 +195,24 @@ Google sign-in only works from authorized domains:
 2. Add your production domain, e.g. `knee-tracker.vercel.app`, plus any custom domain. Preview deployments get unique
    URLs. Add the ones you need, or test sign-in on production only.
 
-### 5. Install on your phone
+### 5. Sign-in on iPhone (same-origin auth)
+
+Safari blocks the cross-site storage that Google sign-in needs when the auth pages live on `<project>.firebaseapp.com` and the
+app lives on `*.vercel.app`. The popup then fails with `auth/popup-closed-by-user`. The fix is to serve Firebase's auth pages from the app's own
+domain:
+
+1. `vercel.json` already proxies `/__/auth/*` and `/__/firebase/init.json` to `https://knee-rehab-tracker-e0b74.firebaseapp.com`.
+   If you use a different Firebase project, change that host in `vercel.json`.
+2. In Vercel, set `VITE_FIREBASE_AUTH_DOMAIN` to your app domain, e.g. `knee-rehab-tracker-zeta.vercel.app` (no `https://`), and
+   **redeploy**. When `authDomain` equals the current host, the app uses the redirect flow instead of a popup.
+3. In [Google Cloud console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) (same project),
+   open the OAuth 2.0 client **“Web client (auto created by Google Service)”** and add, under **Authorized redirect URIs**:
+   `https://knee-rehab-tracker-zeta.vercel.app/__/auth/handler`. Saving can take a few minutes to take effect.
+4. Keep the domain in Firebase **Authentication → Settings → Authorized domains** (step 4).
+
+Local development is unaffected: on `localhost` the auth domain differs from the host, so the popup flow is used.
+
+### 6. Install on your phone
 
 Open the site on your phone. **iOS Safari:** Share → *Add to Home Screen*. **Android Chrome:** menu → *Install app*.
 Firestore's offline cache means you can log entries without a connection; they sync when you're back online.

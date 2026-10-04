@@ -1,6 +1,16 @@
-import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut, type User } from 'firebase/auth'
+import {
+  getRedirectResult,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithCredential,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  type User,
+} from 'firebase/auth'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { auth, useEmulators } from '../lib/firebase'
+import { shouldUseRedirect } from '../lib/authMode'
+import { auth, firebaseConfig, useEmulators } from '../lib/firebase'
 
 interface AuthState {
   user: User | null
@@ -20,7 +30,16 @@ export const useAuth = () => useContext(AuthContext)
 export async function signInWithGoogle() {
   const provider = new GoogleAuthProvider()
   provider.setCustomParameters({ prompt: 'select_account' })
-  await signInWithPopup(auth, provider)
+  if (shouldUseRedirect(firebaseConfig.authDomain, window.location.host)) {
+    await signInWithRedirect(auth, provider)
+  } else {
+    await signInWithPopup(auth, provider)
+  }
+}
+
+/** Completes a redirect sign-in; rejects with the error if it failed. */
+export async function completeRedirectSignIn() {
+  await getRedirectResult(auth)
 }
 
 /**
