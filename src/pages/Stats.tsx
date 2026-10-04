@@ -1,13 +1,17 @@
 import { useMemo, useState } from 'react'
 import {
   acwrSeries,
+  formatLoad,
   formatLong,
   formatShort,
   greenStreaks,
   loadVsNextDayPain,
   painZone,
   statusTimeline,
+  STREAM_LABEL,
+  STREAM_UNIT,
   weeklySummaries,
+  type LoadStream,
   type WeekSummary,
 } from '../domain'
 import { AcwrChart, BreakdownChart, LoadPainChart, ToleranceChart } from '../components/charts'
@@ -19,13 +23,59 @@ import { useData } from '../state/data'
 type Range = '4w' | '12w' | 'all'
 const RANGE_DAYS: Record<Range, number> = { '4w': 28, '12w': 84, all: Infinity }
 
+/** Show the `n` largest keys and fold the rest into "Other" (keeps colours to the fixed palette). */
+function topKeys(totals: Record<string, number>, n: number): string[] {
+  return Object.entries(totals)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([k]) => k)
+}
+
+function foldRows(weeks: WeekSummary[], pick: (w: WeekSummary) => Record<string, number>, keys: string[]) {
+  return weeks.map((w) => {
+    const values: Record<string, number> = {}
+    for (const [k, v] of Object.entries(pick(w))) {
+      const key = keys.includes(k) ? k : 'Other'
+      values[key] = (values[key] ?? 0) + v
+    }
+    return { week: w.weekStart, values }
+  })
+}
+
+function StreamToggle({ streams, value, onChange }: { streams: LoadStream[]; value: LoadStream; onChange: (s: LoadStream) => void }) {
+  if (streams.length < 2) return null
+  return (
+    <div className="mb-3">
+      <Segmented
+        label="Load type"
+        value={value}
+        onChange={onChange}
+        options={streams.map((s) => ({ value: s, label: `${STREAM_LABEL[s]} (${STREAM_UNIT[s]})` }))}
+      />
+    </div>
+  )
+}
+
 export function Stats() {
   const { series, settings, loading } = useData()
   const [range, setRange] = useState<Range>('4w')
 
-  const acwr = useMemo(() => acwrSeries(series), [series])
+  // Streams that have any data at all; keeps panels stable when switching range.
+  const streams = useMemo(() => {
+    const out: LoadStream[] = []
+    if (series.some((p) => p.strengthLoad > 0)) out.push('strength')
+    if (series.some((p) => p.cardioLoad > 0)) out.push('cardio')
+    return out
+  }, [series])
+  const [acwrPick, setAcwrStream] = useState<LoadStream | null>(null)
+  const [tolerancePick, setToleranceStream] = useState<LoadStream | null>(null)
+  const acwrStream = acwrPick && streams.includes(acwrPick) ? acwrPick : (streams[0] ?? 'strength')
+  const toleranceStream = tolerancePick && streams.includes(tolerancePick) ? tolerancePick : (streams[0] ?? 'strength')
+
+  const acwr = useMemo(() => acwrSeries(series, acwrStream), [series, acwrStream])
   const weeks = useMemo(() => weeklySummaries(series, settings), [series, settings])
-  const tolerance = useMemo(() => loadVsNextDayPain(series, settings), [series, settings])
+  const tolerance = useMemo(() => loadVsNextDayPain(series, settings, toleranceStream), [series, settings, toleranceStream])
   const streaks = useMemo(() => greenStreaks(series, settings), [series, settings])
   const timeline = useMemo(() => statusTimeline(series, settings), [series, settings])
 
@@ -47,9 +97,18 @@ export function Stats() {
   const weeksVisible = weeks.filter((w) => w.weekStart > addWeek(firstVisible, -1))
 
   // Stable colour per activity: settings order first, then any legacy names.
-  const typeNames = [...settings.activityTypes.map((t) => t.name)]
-  for (const w of weeks) for (const k of Object.keys(w.loadByType)) if (!typeNames.includes(k)) typeNames.push(k)
-  const usedTypes = typeNames.filter((name) => weeksVisible.some((w) => (w.loadByType[name] ?? 0) > 0))
+  const cardioTotals: Record<string, number> = {}
+  const exerciseTotals: Record<string, number> = {}
+  for (const w of weeksVisible) {
+    for (const [k, v] of Object.entries(w.cardioByType)) cardioTotals[k] = (cardioTotals[k] ?? 0) + v
+    for (const [k, v] of Object.entries(w.tonnageByExercise)) exerciseTotals[k] = (exerciseTotals[k] ?? 0) + v
+  }
+  const cardioTypes = settings.activityTypes.map((t) => t.name).filter((name) => (cardioTotals[name] ?? 0) > 0)
+  for (const k of Object.keys(cardioTotals)) if (!cardioTypes.includes(k) && cardioTotals[k] > 0) cardioTypes.push(k)
+  const cardioKeys = cardioTypes.slice(0, SERIES.length - 1)
+  // Biggest exercises get their own colour; sorted by name so a colour stays with its exercise.
+  const exerciseKeys = topKeys(exerciseTotals, SERIES.length - 1).sort((a, b) => a.localeCompare(b))
+  const withOther = (keys: string[], all: string[]) => (all.length > keys.length ? [...keys, 'Other'] : keys)
 
   return (
     <div className="space-y-4">
@@ -81,7 +140,8 @@ export function Stats() {
 
       <section className="card">
         <h2 className="section-title">Load & pain</h2>
-        <LoadPainChart data={daily} settings={settings} />
+        <LoadPainChart data={daily} settings={settings} streams={streams} />
+        <p className="mt-2 text-xs text-stone-500">Strength load = sets × reps × kg (holds: seconds ÷ 3 count as reps). Cardio load = minutes.</p>
       </section>
 
       <section className="card">
@@ -89,33 +149,68 @@ export function Stats() {
         <WeeklyTable weeks={[...weeksVisible].reverse()} />
       </section>
 
-      <section className="card">
-        <h2 className="section-title">Acute vs chronic load</h2>
-        <AcwrChart data={acwrVisible} settings={settings} />
-        {series.length < 28 && <p className="mt-2 text-xs text-stone-500">ACWR needs 28 days of history — not enough data yet ({series.length} days).</p>}
-      </section>
+      {streams.length > 0 && (
+        <section className="card">
+          <h2 className="section-title">Acute vs chronic load</h2>
+          <StreamToggle streams={streams} value={acwrStream} onChange={setAcwrStream} />
+          <AcwrChart data={acwrVisible} settings={settings} stream={acwrStream} />
+          {series.length < 28 && <p className="mt-2 text-xs text-stone-500">ACWR needs 28 days of history — not enough data yet ({series.length} days).</p>}
+        </section>
+      )}
 
-      <section className="card">
-        <h2 className="section-title">Load vs next-day pain</h2>
-        <ToleranceChart t={tolerance} settings={settings} />
-        <p className="mt-2 text-sm text-stone-700 dark:text-stone-300" data-testid="tolerance-summary">
-          {tolerance.points.length === 0
-            ? 'Not enough data yet: needs days followed by a logged pain score.'
-            : tolerance.greenRange
-              ? <>
-                  Next-day pain stayed green after loads of <b>{tolerance.greenRange.min}–{tolerance.greenRange.max}</b>.
-                  {tolerance.safeUpTo !== null && <> Every day with load up to <b>{tolerance.safeUpTo}</b> was followed by green pain (shaded).</>}
-                </>
-              : 'Next-day pain has not been green after any logged day yet.'}
-        </p>
-        <p className="mt-1 text-xs text-stone-500">Only pairs where the next day has a logged pain score are shown.</p>
-      </section>
+      {streams.length > 0 && (
+        <section className="card">
+          <h2 className="section-title">Load vs next-day pain</h2>
+          <StreamToggle streams={streams} value={toleranceStream} onChange={setToleranceStream} />
+          <ToleranceChart t={tolerance} settings={settings} stream={toleranceStream} />
+          <p className="mt-2 text-sm text-stone-700 dark:text-stone-300" data-testid="tolerance-summary">
+            {tolerance.points.length === 0 ? (
+              'Not enough data yet: needs days followed by a logged pain score.'
+            ) : tolerance.greenRange ? (
+              <>
+                Next-day pain stayed green after {STREAM_LABEL[toleranceStream].toLowerCase()} loads of{' '}
+                <b>
+                  {Math.round(tolerance.greenRange.min).toLocaleString('en-US')}–{formatLoad(tolerance.greenRange.max, toleranceStream)}
+                </b>
+                .
+                {tolerance.safeUpTo !== null && (
+                  <>
+                    {' '}
+                    Every day up to <b>{formatLoad(tolerance.safeUpTo, toleranceStream)}</b> was followed by green pain (shaded).
+                  </>
+                )}
+              </>
+            ) : (
+              'Next-day pain has not been green after any logged day yet.'
+            )}
+          </p>
+          <p className="mt-1 text-xs text-stone-500">Only pairs where the next day has a logged pain score are shown.</p>
+        </section>
+      )}
 
-      <section className="card">
-        <h2 className="section-title">Load by activity per week</h2>
-        {usedTypes.length ? <BreakdownChart weeks={weeksVisible} types={usedTypes} /> : <p className="text-sm text-stone-500">No sessions in this range.</p>}
-        {usedTypes.length > SERIES.length && <p className="text-xs text-stone-500">Colours repeat after {SERIES.length} activity types.</p>}
-      </section>
+      {exerciseKeys.length > 0 && (
+        <section className="card">
+          <h2 className="section-title">Strength by exercise per week (kg)</h2>
+          <BreakdownChart
+            rows={foldRows(weeksVisible, (w) => w.tonnageByExercise, exerciseKeys)}
+            types={withOther(exerciseKeys, Object.keys(exerciseTotals).filter((k) => exerciseTotals[k] > 0))}
+            unit="kg"
+            testId="breakdown-strength"
+          />
+        </section>
+      )}
+
+      {cardioKeys.length > 0 && (
+        <section className="card">
+          <h2 className="section-title">Cardio by activity per week (min)</h2>
+          <BreakdownChart
+            rows={foldRows(weeksVisible, (w) => w.cardioByType, cardioKeys)}
+            types={withOther(cardioKeys, cardioTypes)}
+            unit="min"
+            testId="breakdown-cardio"
+          />
+        </section>
+      )}
 
       <section className="card">
         <h2 className="section-title">Status changes</h2>
@@ -152,13 +247,17 @@ function WeeklyTable({ weeks }: { weeks: WeekSummary[] }) {
   const { settings } = useData()
   const bad = 'bg-red-100 text-red-900 font-bold dark:bg-red-950 dark:text-red-200'
   const warn = 'bg-amber-100 text-amber-900 font-bold dark:bg-amber-950 dark:text-amber-200'
+  const over = (pct: number | null) => pct !== null && pct > settings.maxWeeklyIncreasePct
+  const pctCell = (pct: number | null) => (pct === null ? '–' : `${pct > 0 ? '+' : ''}${Math.round(pct)}%`)
   return (
     <div className="-mx-4 overflow-x-auto px-4">
-      <table className="w-full min-w-[520px] text-sm tabular-nums" data-testid="weekly-table">
+      <table className="w-full min-w-[620px] text-sm tabular-nums" data-testid="weekly-table">
         <thead>
           <tr className="text-left text-xs text-stone-500">
             <th className="py-1 pr-2 font-semibold">Week of</th>
-            <th className="px-1 text-right font-semibold">Load</th>
+            <th className="px-1 text-right font-semibold">Strength kg</th>
+            <th className="px-1 text-right font-semibold">WoW</th>
+            <th className="px-1 text-right font-semibold">Cardio min</th>
             <th className="px-1 text-right font-semibold">WoW</th>
             <th className="px-1 text-right font-semibold">Avg pain</th>
             <th className="px-1 text-right font-semibold">Max pain</th>
@@ -172,10 +271,10 @@ function WeeklyTable({ weeks }: { weeks: WeekSummary[] }) {
             return (
               <tr key={w.weekStart} className="border-t border-stone-200 dark:border-stone-800">
                 <td className="py-2 pr-2">{formatShort(w.weekStart)}</td>
-                <td className="px-1 text-right">{Math.round(w.totalLoad)}</td>
-                <td className={`px-1 text-right ${w.wowPct !== null && w.wowPct > settings.maxWeeklyIncreasePct ? bad : ''}`} title={w.wowPct !== null && w.wowPct > settings.maxWeeklyIncreasePct ? `Above max +${settings.maxWeeklyIncreasePct}%` : undefined}>
-                  {w.wowPct === null ? '–' : `${w.wowPct > 0 ? '+' : ''}${Math.round(w.wowPct)}%`}
-                </td>
+                <td className="px-1 text-right" data-testid="week-strength">{Math.round(w.strengthLoad).toLocaleString('en-US')}</td>
+                <td className={`px-1 text-right ${over(w.strengthWowPct) ? bad : ''}`}>{pctCell(w.strengthWowPct)}</td>
+                <td className="px-1 text-right" data-testid="week-cardio">{Math.round(w.cardioLoad)}</td>
+                <td className={`px-1 text-right ${over(w.cardioWowPct) ? bad : ''}`}>{pctCell(w.cardioWowPct)}</td>
                 <td className={`px-1 text-right ${avgZone === 'red' ? bad : avgZone === 'amber' ? warn : ''}`}>{w.avgPain.toFixed(1)}</td>
                 <td className={`px-1 text-right ${w.maxPain > settings.painThreshold ? bad : ''}`}>{w.maxPain}</td>
                 <td className={`px-1 text-right ${w.daysOverThreshold > 0 ? bad : ''}`}>{w.daysOverThreshold}</td>
@@ -187,7 +286,7 @@ function WeeklyTable({ weeks }: { weeks: WeekSummary[] }) {
           })}
         </tbody>
       </table>
-      <p className="mt-2 text-xs text-stone-500">Highlighted cells broke a rule. Average pain counts unlogged days as 0.</p>
+      <p className="mt-2 text-xs text-stone-500">Highlighted cells broke a rule (WoW above +{settings.maxWeeklyIncreasePct}%, pain over threshold). Average pain counts unlogged days as 0.</p>
     </div>
   )
 }

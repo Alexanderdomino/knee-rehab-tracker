@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Guidance } from '../domain'
+import { STREAM_LABEL, type Guidance } from '../domain'
 import { Icon } from './Icon'
 
 const STYLE = {
@@ -43,10 +43,23 @@ export function StatusCard({ guidance }: { guidance: Guidance }) {
 
       <div className="mt-3 rounded-xl bg-white/70 p-3 dark:bg-black/20">
         <p className="text-xs font-semibold text-stone-600 uppercase dark:text-stone-400">Suggested load, next 7 days</p>
-        <p className="text-2xl font-bold tabular-nums" data-testid="status-target">
-          {guidance.target.label} <span className="text-sm font-medium text-stone-600 dark:text-stone-400">load units</span>
-        </p>
-        <p className="text-sm text-stone-600 dark:text-stone-400">{guidance.target.explanation}</p>
+        {guidance.targets.length === 0 ? (
+          <p className="text-sm text-stone-600 dark:text-stone-400" data-testid="status-target">
+            Log a session to get a target.
+          </p>
+        ) : (
+          <ul className="mt-1 space-y-1.5" data-testid="status-target">
+            {guidance.targets.map((t) => (
+              <li key={t.stream}>
+                <p className="leading-tight">
+                  <span className="text-sm font-semibold text-stone-600 dark:text-stone-400">{STREAM_LABEL[t.stream]} </span>
+                  <span className="text-2xl font-bold tabular-nums">{t.label}</span>
+                </p>
+                <p className="text-sm text-stone-600 dark:text-stone-400">{t.explanation}</p>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <button

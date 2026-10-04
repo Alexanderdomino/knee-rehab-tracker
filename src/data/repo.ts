@@ -65,7 +65,7 @@ export function clearDayPain(uid: string, date: ISODate) {
   return deleteDoc(doc(daysCol(uid), date))
 }
 
-export type EntryInput = Omit<Entry, 'id' | 'createdAt'>
+export type EntryInput = Omit<Entry, 'id' | 'createdAt' | 'rpe'>
 
 function cleanEntry(e: EntryInput) {
   return {
@@ -73,10 +73,19 @@ function cleanEntry(e: EntryInput) {
     activityTypeId: e.activityTypeId,
     activityName: e.activityName,
     kind: e.kind,
-    durationMin: e.durationMin,
-    distanceKm: e.distanceKm ?? null,
-    exercises: e.kind === 'strength' ? (e.exercises ?? []) : [],
-    rpe: e.rpe,
+    // Cardio load = minutes; strength load comes from the exercises (tonnage).
+    durationMin: e.kind === 'cardio' ? (e.durationMin ?? null) : null,
+    distanceKm: e.kind === 'cardio' ? (e.distanceKm ?? null) : null,
+    exercises:
+      e.kind === 'strength'
+        ? (e.exercises ?? []).map((x) => ({
+            name: x.name,
+            sets: x.sets,
+            reps: x.holdSec ? 0 : x.reps,
+            loadKg: x.loadKg,
+            holdSec: x.holdSec ?? null,
+          }))
+        : [],
     painDuring: e.painDuring ?? null,
     painNextMorning: e.painNextMorning ?? null,
     swelling: e.swelling,

@@ -1,6 +1,6 @@
-import { sessionLoad, entryTonnage } from './load';
+import { cardioLoad, strengthLoad } from './load';
 import type { DailyPoint } from './series';
-import type { Entry } from './types';
+import type { Entry, Exercise } from './types';
 
 export function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return '';
@@ -15,10 +15,9 @@ export const DAILY_CSV_HEADER = [
   'logged',
   'daily_pain',
   'pain_source',
-  'session_load',
-  'duration_min',
+  'strength_load_kg',
+  'cardio_min',
   'distance_km',
-  'tonnage_kg',
   'entries',
   'activities',
   'max_session_pain',
@@ -39,10 +38,9 @@ export function dailyCsv(series: DailyPoint[]): string {
       p.logged ? 'yes' : 'no',
       p.pain,
       p.dailyPain !== null ? 'daily' : p.painLogged ? 'session' : 'not_logged',
-      p.load,
-      p.durationMin,
+      Math.round(p.strengthLoad),
+      p.cardioLoad,
       round2(p.distanceKm),
-      p.tonnage,
       p.entryCount,
       p.entries.map((e) => e.activityName).join('; '),
       p.maxSessionPain ?? '',
@@ -60,9 +58,8 @@ export const ENTRIES_CSV_HEADER = [
   'kind',
   'duration_min',
   'distance_km',
-  'rpe',
-  'session_load',
-  'tonnage_kg',
+  'strength_load_kg',
+  'cardio_min',
   'exercises',
   'pain_during',
   'pain_next_morning',
@@ -79,12 +76,11 @@ export function entriesCsv(entries: Entry[]): string {
       e.date,
       e.activityName,
       e.kind,
-      e.durationMin,
+      e.durationMin ?? '',
       e.distanceKm ?? '',
-      e.rpe,
-      sessionLoad(e),
-      entryTonnage(e),
-      (e.exercises ?? []).map((x) => `${x.name} ${x.sets}x${x.reps}@${x.loadKg}kg`).join('; '),
+      e.kind === 'strength' ? Math.round(strengthLoad(e)) : '',
+      e.kind === 'cardio' ? cardioLoad(e) : '',
+      (e.exercises ?? []).map(formatExercise).join('; '),
       e.painDuring ?? '',
       e.painNextMorning ?? '',
       e.swelling,
@@ -92,6 +88,12 @@ export function entriesCsv(entries: Entry[]): string {
     ]);
   }
   return toCsv(rows);
+}
+
+/** e.g. "Squat 3x10@40kg" or "Iso leg extension 4x45s@20kg". */
+export function formatExercise(x: Exercise): string {
+  const perSet = x.holdSec != null && x.holdSec > 0 ? `${x.holdSec}s` : `${x.reps}`;
+  return `${x.name} ${x.sets}x${perSet}@${x.loadKg}kg`;
 }
 
 function round2(n: number) {

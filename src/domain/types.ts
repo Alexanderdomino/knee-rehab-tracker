@@ -13,8 +13,11 @@ export interface ActivityType {
 export interface Exercise {
   name: string;
   sets: number;
+  /** Reps per set. Ignored for holds (when holdSec is set). */
   reps: number;
   loadKg: number;
+  /** Isometric hold length per set in seconds; null/absent for normal reps. */
+  holdSec?: number | null;
 }
 
 /** users/{uid}/days/{YYYY-MM-DD} */
@@ -31,11 +34,12 @@ export interface Entry {
   /** Snapshot of the activity name at logging time, so renamed/deleted types still display. */
   activityName: string;
   kind: ActivityKind;
-  /** Always present: strength entries default to the configured strength duration. */
-  durationMin: number;
+  /** Cardio: session length (= cardio load). Strength: optional, not used for load. */
+  durationMin?: number | null;
   distanceKm?: number | null;
   exercises?: Exercise[];
-  rpe: number;
+  /** Legacy: entries logged before RPE was removed may still carry it. Not used. */
+  rpe?: number | null;
   painDuring?: number | null;
   painNextMorning?: number | null;
   swelling: Swelling;
@@ -50,7 +54,7 @@ export interface Settings {
   amberMax: number;
   /** Pain strictly above this value triggers a RED alert (default 5). */
   painThreshold: number;
-  /** Max rolling week-over-week load increase in % (default 10). */
+  /** Max rolling week-over-week load increase in % (default 10), per load stream. */
   maxWeeklyIncreasePct: number;
   acwrUpper: number;
   acwrLower: number;
@@ -59,10 +63,14 @@ export interface Settings {
   progressionPct: number;
   /** Number of logged green days required before progressing (default 7). */
   greenDaysRequired: number;
-  /** Default duration used for strength sessions (default 45 min). */
-  defaultStrengthDurationMin: number;
   activityTypes: ActivityType[];
 }
 
 export type Zone = 'green' | 'amber' | 'red';
 export type Status = 'GREEN' | 'AMBER' | 'RED';
+
+/**
+ * Load is tracked as two separate streams that can't be added together:
+ * strength = tonnage in kg, cardio = minutes.
+ */
+export type LoadStream = 'strength' | 'cardio';

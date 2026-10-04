@@ -11,22 +11,28 @@ describe('CSV export', () => {
     );
     const lines = dailyCsv(s).trim().split('\r\n');
     expect(lines).toHaveLength(1 + 5);
-    expect(lines[0].startsWith('date,logged,daily_pain,pain_source,session_load')).toBe(true);
-    expect(lines[1]).toBe('2026-02-27,yes,3,daily,0,0,0,0,0,,,,,');
-    expect(lines[2]).toBe('2026-02-28,no,0,not_logged,0,0,0,0,0,,,,,');
-    expect(lines[3]).toBe('2026-03-01,no,0,not_logged,0,0,0,0,0,,,,,');
-    expect(lines[4]).toBe('2026-03-02,yes,0,not_logged,120,120,0,0,1,Cycling,,,none,"easy, ""flat"" ride"');
-    expect(lines[5]).toBe('2026-03-03,no,0,not_logged,0,0,0,0,0,,,,,');
+    expect(lines[0].startsWith('date,logged,daily_pain,pain_source,strength_load_kg,cardio_min,distance_km,entries')).toBe(true);
+    expect(lines[1]).toBe('2026-02-27,yes,3,daily,0,0,0,0,,,,,');
+    expect(lines[2]).toBe('2026-02-28,no,0,not_logged,0,0,0,0,,,,,');
+    expect(lines[3]).toBe('2026-03-01,no,0,not_logged,0,0,0,0,,,,,');
+    expect(lines[4]).toBe('2026-03-02,yes,0,not_logged,0,120,0,1,Cycling,,,none,"easy, ""flat"" ride"');
+    expect(lines[5]).toBe('2026-03-03,no,0,not_logged,0,0,0,0,,,,,');
   });
 
   it('exports entry detail', () => {
     const csv = entriesCsv([
       entry('2026-03-02', {
-        activityName: 'Rehab', kind: 'strength', durationMin: 45, rpe: 6,
-        exercises: [{ name: 'Squat', sets: 3, reps: 10, loadKg: 40 }], painDuring: 2,
+        activityName: 'Rehab', kind: 'strength', durationMin: null,
+        exercises: [
+          { name: 'Squat', sets: 3, reps: 10, loadKg: 40 },
+          { name: 'Iso leg extension', sets: 4, reps: 0, loadKg: 20, holdSec: 45 },
+        ],
+        painDuring: 2,
       }),
     ]);
-    expect(csv.split('\r\n')[1]).toBe('2026-03-02,Rehab,strength,45,,6,270,1200,Squat 3x10@40kg,2,,none,');
+    expect(csv.split('\r\n')[1]).toBe(
+      '2026-03-02,Rehab,strength,,,2400,,Squat 3x10@40kg; Iso leg extension 4x45s@20kg,2,,none,',
+    );
   });
 
   it('escapes special characters', () => {

@@ -7,9 +7,10 @@
  */
 import { ACUTE_DAYS, CHRONIC_DAYS, linearSlope, windowLoad } from './aggregate';
 import { diffDays, formatShort } from './dates';
+import { formatLoad, STREAMS } from './load';
 import { painZone } from './settings';
 import type { DailyPoint } from './series';
-import type { ISODate, Settings, Status } from './types';
+import type { ISODate, LoadStream, Settings, Status } from './types';
 
 export type RuleId =
   | 'pain-over-threshold'
@@ -32,6 +33,8 @@ export type RuleState = 'fired' | 'ok' | 'insufficient';
 
 export interface RuleCheck {
   id: RuleId;
+  /** Load stream a load rule was evaluated for (strength = kg, cardio = minutes). */
+  stream?: LoadStream;
   /** Status this rule pushes towards when it fires. */
   level: 'RED' | 'AMBER';
   state: RuleState;
@@ -39,13 +42,21 @@ export interface RuleCheck {
 }
 
 export interface LoadTarget {
-  /** Load over the last 7 days used as the base. */
+  stream: LoadStream;
+  /** Load over the last 7 days used as the base (kg or minutes). */
   base: number;
   min: number;
   max: number;
-  /** Human-readable target, e.g. "840–960" or "1100". */
+  /** Human-readable target with unit, e.g. "6,300–7,200 kg" or "140 min". */
   label: string;
   explanation: string;
+}
+
+export interface StreamMetrics {
+  acwr: number | null;
+  last7: number;
+  prev7: number | null;
+  wowPct: number | null;
 }
 
 export interface Guidance {
@@ -57,13 +68,11 @@ export interface Guidance {
   /** "Not enough data yet" notes. */
   dataNotes: string[];
   checks: RuleCheck[];
-  target: LoadTarget;
+  /** One target per load stream that has load to base it on. */
+  targets: LoadTarget[];
   metrics: {
     referenceDate: ISODate | null;
-    acwr: number | null;
-    last7Load: number;
-    prev7Load: number | null;
-    wowPct: number | null;
+    streams: Record<LoadStream, StreamMetrics>;
     painSlope: number | null;
     greenLoggedDays: number;
   };
@@ -99,8 +108,8 @@ export function evaluateGuidance(series: DailyPoint[], settings: Settings): Guid
   const last = series.length - 1;
   const date = series.length ? series[last].date : '';
   const checks: RuleCheck[] = [];
-  const add = (id: RuleId, level: 'RED' | 'AMBER', state: RuleState, message: string) =>
-    checks.push({ id, level, state, message });
+  const add = (id: RuleId, level: 'RED' | 'AMBER', state: RuleState, message: string, stream?: LoadStream) =>
+    checks.push({ id, level, state, message, ...(stream ? { stream } : {}) });
 
   const ref = series.length ? referenceIndex(series) : null;
   const refPoint = ref !== null ? series[ref] : null;
@@ -188,23 +197,29 @@ export function evaluateGuidance(series: DailyPoint[], settings: Settings): Guid
     add('swelling-moderate', 'RED', 'ok', 'No moderate swelling reported.');
   }
 
-  // ACWR (shared by R5 and the GREEN requirement).
-  let acwr: number | null = null;
-  let acwrNote: string | null = null;
-  if (series.length < CHRONIC_DAYS) {
-    acwrNote = `Acute:chronic ratio needs ${CHRONIC_DAYS} days of history (have ${series.length}) — not enough data yet.`;
+  // ACWR per load stream (shared by R5 and the GREEN requirement).
+  const streams = {} as Record<LoadStream, StreamMetrics>;
+  for (const { key } of STREAMS) streams[key] = { acwr: null, last7: 0, prev7: null, wowPct: null };
+  const acwrShort = series.length < CHRONIC_DAYS;
+  const acwrShortNote = `Acute:chronic ratio needs ${CHRONIC_DAYS} days of history (have ${series.length}) — not enough data yet.`;
+  if (acwrShort) {
+    add('acwr-high', 'RED', 'insufficient', acwrShortNote);
   } else {
-    const acute = (windowLoad(series, last, ACUTE_DAYS) ?? 0) / ACUTE_DAYS;
-    const chronic = (windowLoad(series, last, CHRONIC_DAYS) ?? 0) / CHRONIC_DAYS;
-    if (chronic > 0) acwr = acute / chronic;
-    else acwrNote = 'No load in the last 28 days, so the acute:chronic ratio can’t be computed yet.';
-  }
-  if (acwr === null) {
-    add('acwr-high', 'RED', 'insufficient', acwrNote!);
-  } else if (acwr > s.acwrUpper + EPS) {
-    add('acwr-high', 'RED', 'fired', `Acute:chronic workload ratio is ${fmt1(acwr)} — above your upper limit of ${s.acwrUpper}. Load has spiked compared with the last 4 weeks.`);
-  } else {
-    add('acwr-high', 'RED', 'ok', `Acute:chronic workload ratio ${fmt1(acwr)} is at or below ${s.acwrUpper}.`);
+    for (const { key, label } of STREAMS) {
+      const acute = (windowLoad(series, last, ACUTE_DAYS, key) ?? 0) / ACUTE_DAYS;
+      const chronic = (windowLoad(series, last, CHRONIC_DAYS, key) ?? 0) / CHRONIC_DAYS;
+      if (chronic === 0) {
+        add('acwr-high', 'RED', 'ok', `No ${label.toLowerCase()} load in the last 4 weeks.`, key);
+        continue;
+      }
+      const acwr = acute / chronic;
+      streams[key].acwr = acwr;
+      if (acwr > s.acwrUpper + EPS) {
+        add('acwr-high', 'RED', 'fired', `${label} acute:chronic ratio is ${fmt1(acwr)} — above your upper limit of ${s.acwrUpper}. ${label} load has spiked compared with the last 4 weeks.`, key);
+      } else {
+        add('acwr-high', 'RED', 'ok', `${label} acute:chronic ratio ${fmt1(acwr)} is at or below ${s.acwrUpper}.`, key);
+      }
+    }
   }
 
   // ---------- AMBER rules ----------
@@ -220,21 +235,28 @@ export function evaluateGuidance(series: DailyPoint[], settings: Settings): Guid
     }
   }
 
-  // A2: rolling week-over-week load increase above the max.
-  const last7Load = windowLoad(series, last, Math.min(7, series.length)) ?? 0;
-  const prev7Load = windowLoad(series, last - 7, 7);
-  let wowPct: number | null = null;
-  if (prev7Load === null) {
+  // A2: rolling week-over-week load increase above the max, per stream.
+  for (const { key } of STREAMS) {
+    streams[key].last7 = windowLoad(series, last, Math.min(7, series.length), key) ?? 0;
+    streams[key].prev7 = windowLoad(series, last - 7, 7, key);
+  }
+  if (series.length < 14) {
     add('wow-increase', 'AMBER', 'insufficient', `Week-over-week change needs 14 days of history (have ${series.length}).`);
-  } else if (prev7Load === 0) {
-    if (last7Load > 0) add('wow-increase', 'AMBER', 'insufficient', 'The previous 7 days had no load, so a % change can’t be computed.');
-    else add('wow-increase', 'AMBER', 'ok', 'No load in the last two weeks.');
   } else {
-    wowPct = ((last7Load - prev7Load) / prev7Load) * 100;
-    if (wowPct > s.maxWeeklyIncreasePct + EPS) {
-      add('wow-increase', 'AMBER', 'fired', `Load over the last 7 days (${Math.round(last7Load)}) is ${fmtPct(wowPct)} vs the 7 days before (${Math.round(prev7Load)}) — more than your max of +${s.maxWeeklyIncreasePct}%.`);
-    } else {
-      add('wow-increase', 'AMBER', 'ok', `Week-over-week load change is ${fmtPct(wowPct)} (max +${s.maxWeeklyIncreasePct}%).`);
+    for (const { key, label } of STREAMS) {
+      const { last7, prev7 } = streams[key];
+      if (!prev7) {
+        if (last7 > 0) add('wow-increase', 'AMBER', 'insufficient', `${label}: the previous 7 days had none, so a % change can’t be computed.`, key);
+        else add('wow-increase', 'AMBER', 'ok', `No ${label.toLowerCase()} load in the last two weeks.`, key);
+        continue;
+      }
+      const pct = ((last7 - prev7) / prev7) * 100;
+      streams[key].wowPct = pct;
+      if (pct > s.maxWeeklyIncreasePct + EPS) {
+        add('wow-increase', 'AMBER', 'fired', `${label} load over the last 7 days (${formatLoad(last7, key)}) is ${fmtPct(pct)} vs the 7 days before (${formatLoad(prev7, key)}) — more than your max of +${s.maxWeeklyIncreasePct}%.`, key);
+      } else {
+        add('wow-increase', 'AMBER', 'ok', `${label} week-over-week change is ${fmtPct(pct)} (max +${s.maxWeeklyIncreasePct}%).`, key);
+      }
     }
   }
 
@@ -269,14 +291,20 @@ export function evaluateGuidance(series: DailyPoint[], settings: Settings): Guid
     add('green-streak', 'AMBER', 'fired', `Only ${greenLoggedDays} of the last ${N} logged days in a row were green — you need ${N}.`);
   }
 
-  if (acwr === null) {
-    add('acwr-in-range', 'AMBER', 'insufficient', acwrNote!);
-  } else if (acwr < s.acwrLower - EPS) {
-    add('acwr-in-range', 'AMBER', 'fired', `Acute:chronic ratio ${fmt1(acwr)} is below your lower limit of ${s.acwrLower} — rebuild gradually before progressing.`);
-  } else if (acwr <= s.acwrUpper + EPS) {
-    add('acwr-in-range', 'AMBER', 'ok', `Acute:chronic ratio ${fmt1(acwr)} is within ${s.acwrLower}–${s.acwrUpper}.`);
+  if (acwrShort) {
+    add('acwr-in-range', 'AMBER', 'insufficient', acwrShortNote);
   } else {
-    add('acwr-in-range', 'AMBER', 'fired', `Acute:chronic ratio ${fmt1(acwr)} is above ${s.acwrUpper}.`);
+    for (const { key, label } of STREAMS) {
+      const acwr = streams[key].acwr;
+      if (acwr === null) continue; // no load in this stream in the last 4 weeks
+      if (acwr < s.acwrLower - EPS) {
+        add('acwr-in-range', 'AMBER', 'fired', `${label} acute:chronic ratio ${fmt1(acwr)} is below your lower limit of ${s.acwrLower} — rebuild gradually before progressing.`, key);
+      } else if (acwr <= s.acwrUpper + EPS) {
+        add('acwr-in-range', 'AMBER', 'ok', `${label} acute:chronic ratio ${fmt1(acwr)} is within ${s.acwrLower}–${s.acwrUpper}.`, key);
+      } else {
+        add('acwr-in-range', 'AMBER', 'fired', `${label} acute:chronic ratio ${fmt1(acwr)} is above ${s.acwrUpper}.`, key);
+      }
+    }
   }
 
   // ---------- Decide ----------
@@ -285,9 +313,8 @@ export function evaluateGuidance(series: DailyPoint[], settings: Settings): Guid
   const redFired = fired('RED');
   const amberRules: RuleId[] = ['pain-amber-today', 'wow-increase', 'pain-trend-rising'];
   const amberFired = fired('AMBER', amberRules);
-  const greenReq = checks.filter((c) => c.id === 'green-streak' || c.id === 'acwr-in-range');
-  const streakCheck = greenReq.find((c) => c.id === 'green-streak')!;
-  const acwrCheck = greenReq.find((c) => c.id === 'acwr-in-range')!;
+  const streakCheck = checks.find((c) => c.id === 'green-streak')!;
+  const acwrChecks = checks.filter((c) => c.id === 'acwr-in-range');
 
   let status: Status;
   let reasons: string[];
@@ -297,12 +324,15 @@ export function evaluateGuidance(series: DailyPoint[], settings: Settings): Guid
   } else if (amberFired.length) {
     status = 'AMBER';
     reasons = amberFired.map((c) => c.message);
-  } else if (streakCheck.state === 'ok' && acwrCheck.state !== 'fired') {
+  } else if (streakCheck.state === 'ok' && !acwrChecks.some((c) => c.state === 'fired')) {
     status = 'GREEN';
-    reasons = [streakCheck.message, acwrCheck.state === 'ok' ? acwrCheck.message : `${acwrCheck.message} Progress cautiously.`];
+    reasons = [
+      streakCheck.message,
+      ...acwrChecks.map((c) => (c.state === 'insufficient' ? `${c.message} Progress cautiously.` : c.message)),
+    ];
   } else {
     status = 'AMBER';
-    reasons = [streakCheck, acwrCheck].filter((c) => c.state !== 'ok' && !(c.id === 'acwr-in-range' && c.state === 'insufficient')).map((c) => c.message);
+    reasons = [streakCheck, ...acwrChecks].filter((c) => c.state === 'fired' || (c.id === 'green-streak' && c.state !== 'ok')).map((c) => c.message);
   }
 
   const dataNotes = checks
@@ -317,13 +347,10 @@ export function evaluateGuidance(series: DailyPoint[], settings: Settings): Guid
     reasons,
     dataNotes,
     checks,
-    target: suggestTarget(status, series, s),
+    targets: suggestTargets(status, series, s),
     metrics: {
       referenceDate: refPoint?.date ?? null,
-      acwr,
-      last7Load,
-      prev7Load,
-      wowPct,
+      streams,
       painSlope,
       greenLoggedDays,
     },
@@ -331,38 +358,48 @@ export function evaluateGuidance(series: DailyPoint[], settings: Settings): Guid
 }
 
 /**
- * Concrete load target for the next 7 days, based on the load of the last 7
- * days (if that was 0, the 28-day weekly average is used instead).
+ * Concrete load target for the next 7 days for one stream, based on that
+ * stream's load over the last 7 days (if that was 0, its 28-day weekly average).
  */
-export function suggestTarget(status: Status, series: DailyPoint[], s: Settings): LoadTarget {
+export function suggestTarget(status: Status, series: DailyPoint[], s: Settings, stream: LoadStream): LoadTarget {
   const last = series.length - 1;
-  let base = series.length ? windowLoad(series, last, Math.min(7, series.length)) ?? 0 : 0;
+  let base = series.length ? windowLoad(series, last, Math.min(7, series.length), stream) ?? 0 : 0;
   let baseLabel = 'last 7 days';
   if (base === 0 && series.length >= CHRONIC_DAYS) {
-    const chronicWeek = ((windowLoad(series, last, CHRONIC_DAYS) ?? 0) / CHRONIC_DAYS) * 7;
+    const chronicWeek = ((windowLoad(series, last, CHRONIC_DAYS, stream) ?? 0) / CHRONIC_DAYS) * 7;
     if (chronicWeek > 0) {
       base = chronicWeek;
       baseLabel = 'your 4-week weekly average';
     }
   }
-  const r = (n: number) => Math.round(n);
+  // Kilos to the nearest 10, minutes to the nearest minute.
+  const step = stream === 'strength' ? 10 : 1;
+  const r = (n: number) => Math.round(n / step) * step;
   const b = r(base);
+  const f = (n: number) => formatLoad(n, stream);
+  const ofBase = `${baseLabel} (${f(b)})`;
   if (status === 'RED') {
     const min = r(base * (1 - s.reductionMaxPct / 100));
     const max = r(base * (1 - s.reductionMinPct / 100));
     return {
+      stream,
       base: b,
       min,
       max,
-      label: min === max ? `${min}` : `${min}–${max}`,
-      explanation: `${s.reductionMinPct}–${s.reductionMaxPct}% less than ${baseLabel} (${b}).`,
+      label: min === max ? f(min) : `${Math.round(min).toLocaleString('en-US')}–${f(max)}`,
+      explanation: `${s.reductionMinPct}–${s.reductionMaxPct}% less than ${ofBase}.`,
     };
   }
   if (status === 'GREEN') {
     const t = r(base * (1 + s.progressionPct / 100));
-    return { base: b, min: t, max: t, label: `${t}`, explanation: `+${s.progressionPct}% on ${baseLabel} (${b}).` };
+    return { stream, base: b, min: t, max: t, label: f(t), explanation: `+${s.progressionPct}% on ${ofBase}.` };
   }
-  return { base: b, min: b, max: b, label: `${b}`, explanation: `Same as ${baseLabel}.` };
+  return { stream, base: b, min: b, max: b, label: f(b), explanation: `Same as ${ofBase}.` };
+}
+
+/** Targets for every stream that has load to base a target on. */
+export function suggestTargets(status: Status, series: DailyPoint[], s: Settings): LoadTarget[] {
+  return STREAMS.map(({ key }) => suggestTarget(status, series, s, key)).filter((t) => t.base > 0);
 }
 
 export interface StatusChange {

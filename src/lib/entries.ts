@@ -1,4 +1,4 @@
-import { tonnage, type Entry } from '../domain'
+import { cardioLoad, strengthLoad, type Entry, type Exercise, type LoadStream } from '../domain'
 
 const newer = (a: Entry, b: Entry) => a.date > b.date || (a.date === b.date && (a.createdAt ?? 0) > (b.createdAt ?? 0))
 
@@ -12,13 +12,25 @@ export function latestEntry(entries: Entry[], activityTypeId?: string): Entry | 
   return best
 }
 
+/** Short description, e.g. "30 min · 12 km" or "RDL 3×8 @ 60 kg, Iso leg extension 4×45 s @ 20 kg". */
 export function entrySummary(e: Entry): string {
-  const parts = [`${e.durationMin} min`, `RPE ${e.rpe}`]
-  if (e.distanceKm) parts.push(`${e.distanceKm} km`)
-  if (e.kind === 'strength' && e.exercises?.length) {
-    parts.push(`${e.exercises.length} exercise${e.exercises.length > 1 ? 's' : ''}`)
-    const t = tonnage(e.exercises)
-    if (t) parts.push(`${Math.round(t)} kg`)
+  if (e.kind === 'cardio') {
+    const parts = [`${e.durationMin ?? 0} min`]
+    if (e.distanceKm) parts.push(`${e.distanceKm} km`)
+    return parts.join(' · ')
   }
-  return parts.join(' · ')
+  const xs = e.exercises ?? []
+  if (!xs.length) return 'No exercises'
+  return xs.map(describeExercise).join(', ')
+}
+
+/** e.g. "RDL 3×8 @ 60 kg", "Iso leg extension 4×45 s @ 20 kg", "Step-up 3×12". */
+export function describeExercise(x: Exercise): string {
+  const perSet = x.holdSec ? `${x.holdSec} s` : `${x.reps}`
+  return `${x.name} ${x.sets}×${perSet}${x.loadKg ? ` @ ${x.loadKg} kg` : ''}`
+}
+
+/** The load an entry contributes: kg for strength, minutes for cardio. */
+export function entryLoad(e: Entry): { value: number; stream: LoadStream } {
+  return e.kind === 'strength' ? { value: strengthLoad(e), stream: 'strength' } : { value: cardioLoad(e), stream: 'cardio' }
 }

@@ -14,16 +14,27 @@ export function entry(date: ISODate, overrides: Partial<Entry> = {}): Entry {
     activityName: 'Cycling',
     kind: 'cardio',
     durationMin: 30,
-    rpe: 5,
     swelling: 'none',
     createdAt: seq,
     ...overrides,
   };
 }
 
-/** Entry producing exactly `load` units (duration = load, RPE 1). */
-export function loadEntry(date: ISODate, load: number, overrides: Partial<Entry> = {}): Entry {
-  return entry(date, { durationMin: load, rpe: 1, ...overrides });
+/** Cardio entry producing exactly `minutes` of cardio load. */
+export function loadEntry(date: ISODate, minutes: number, overrides: Partial<Entry> = {}): Entry {
+  return entry(date, { durationMin: minutes, ...overrides });
+}
+
+/** Strength entry producing exactly `kg` of tonnage (one exercise, 1 × 1 × kg). */
+export function strengthEntry(date: ISODate, kg: number, overrides: Partial<Entry> = {}): Entry {
+  return entry(date, {
+    activityTypeId: 'rehab',
+    activityName: 'Rehab',
+    kind: 'strength',
+    durationMin: null,
+    exercises: [{ name: 'Leg press', sets: 1, reps: 1, loadKg: kg }],
+    ...overrides,
+  });
 }
 
 export function pains(start: ISODate, values: (number | null)[]): DayLog[] {

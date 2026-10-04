@@ -42,49 +42,6 @@ export function PainScale({ value, onChange, settings, label, allowClear, min = 
   )
 }
 
-/** Neutral 1–10 scale (RPE). */
-export function NumberScale({
-  value,
-  onChange,
-  label,
-  from = 1,
-  to = 10,
-  testId,
-}: {
-  value: number | null
-  onChange: (v: number) => void
-  label: string
-  from?: number
-  to?: number
-  testId?: string
-}) {
-  const values = Array.from({ length: to - from + 1 }, (_, i) => i + from)
-  return (
-    <div role="radiogroup" aria-label={label} className="grid grid-cols-5 gap-2" data-testid={testId}>
-      {values.map((v) => {
-        const selected = value === v
-        return (
-          <button
-            key={v}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            aria-label={`${label} ${v}`}
-            onClick={() => onChange(v)}
-            className={`h-12 rounded-xl text-lg font-bold tabular-nums ring-1 transition active:scale-95 ${
-              selected
-                ? 'bg-teal-700 text-white ring-2 ring-stone-900 dark:bg-teal-600 dark:ring-white'
-                : 'bg-stone-100 text-stone-800 ring-stone-300 dark:bg-stone-800 dark:text-stone-100 dark:ring-stone-700'
-            }`}
-          >
-            {v}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 export function Segmented<T extends string>({
   value,
   options,

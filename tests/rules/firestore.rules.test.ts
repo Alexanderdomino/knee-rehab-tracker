@@ -18,7 +18,6 @@ const validEntry = {
   activityName: 'Cycling',
   kind: 'cardio',
   durationMin: 30,
-  rpe: 5,
   swelling: 'none',
   painDuring: 2,
   painNextMorning: null,
@@ -117,15 +116,35 @@ describe('entry validation', () => {
   const put = (overrides: Record<string, unknown>) =>
     setDoc(doc(alice(), 'users/alice/entries/e1'), { ...validEntry, ...overrides })
 
-  it('accepts RPE 1 and 10, pain 0 and 10', async () => {
-    await assertSucceeds(put({ rpe: 1, painDuring: 0, painNextMorning: 10 }))
-    await assertSucceeds(put({ rpe: 10, painDuring: 10 }))
+  it('accepts entries without RPE, and pain 0 and 10', async () => {
+    await assertSucceeds(put({ painDuring: 0, painNextMorning: 10 }))
+    await assertSucceeds(put({ painDuring: 10 }))
   })
 
-  it('rejects RPE outside 1–10', async () => {
+  it('still accepts legacy RPE 1–10 but rejects out-of-range values', async () => {
+    await assertSucceeds(put({ rpe: 1 }))
+    await assertSucceeds(put({ rpe: 10 }))
+    await assertSucceeds(put({ rpe: null }))
     await assertFails(put({ rpe: 0 }))
     await assertFails(put({ rpe: 11 }))
     await assertFails(put({ rpe: 'hard' }))
+  })
+
+  it('requires a duration for cardio but not for strength', async () => {
+    const noDuration: Record<string, unknown> = { ...validEntry }
+    delete noDuration.durationMin
+    await assertFails(setDoc(doc(alice(), 'users/alice/entries/c1'), noDuration))
+    await assertFails(put({ durationMin: null }))
+    await assertSucceeds(
+      setDoc(doc(alice(), 'users/alice/entries/s1'), {
+        ...noDuration,
+        kind: 'strength',
+        activityTypeId: 'rehab',
+        durationMin: null,
+        distanceKm: null,
+        exercises: [{ name: 'Iso leg extension', sets: 4, reps: 0, loadKg: 20, holdSec: 45 }],
+      }),
+    )
   })
 
   it('rejects session pain outside 0–10', async () => {
@@ -139,7 +158,7 @@ describe('entry validation', () => {
     await assertFails(put({ kind: 'yoga' }))
     await assertFails(put({ durationMin: -5 }))
     const missing: Record<string, unknown> = { ...validEntry }
-    delete missing.rpe
+    delete missing.swelling
     await assertFails(setDoc(doc(alice(), 'users/alice/entries/e2'), missing))
   })
 
