@@ -197,7 +197,7 @@ describe('GREEN: progression requirements', () => {
     const g = run(painsEndingToday([1, 1, 1, 1, 1, 1, 1]), dailyLoad(7, 150));
     expect(g.status).toBe('GREEN');
     expect(g.headline).toBe('OK to progress');
-    expect(g.targets.map((t) => t.label)).toEqual(['1,155 min']); // 1050 × 1.10
+    expect(g.targets.map((t) => t.label)).toEqual(['1,155 knee-min']); // 1050 × 1.10
     // ACWR has too little data: GREEN, but says so
     expect(g.reasons.join(' ')).toMatch(/not enough data/);
   });
@@ -258,15 +258,15 @@ describe('priority and targets', () => {
   it('suggests a concrete reduction range on RED', () => {
     const g = run(painsEndingToday([7]), dailyLoad(7, 1000 / 7));
     expect(g.targets).toHaveLength(1);
-    expect(g.targets[0]).toMatchObject({ stream: 'cardio', base: 1000, min: 700, max: 800, label: '700–800 min' });
+    expect(g.targets[0]).toMatchObject({ stream: 'cardio', base: 1000, min: 700, max: 800, label: '700–800 knee-min' });
     const custom = run(painsEndingToday([7]), dailyLoad(7, 1000 / 7), { reductionMinPct: 10, reductionMaxPct: 10 });
-    expect(custom.targets[0].label).toBe('900 min');
+    expect(custom.targets[0].label).toBe('900 knee-min');
   });
 
   it('holds load on AMBER and progresses by the custom % on GREEN', () => {
     const s = series(painsEndingToday([1]), dailyLoad(7, 100), TODAY);
-    expect(suggestTarget('AMBER', s, settings(), 'cardio').label).toBe('700 min');
-    expect(suggestTarget('GREEN', s, settings({ progressionPct: 5 }), 'cardio').label).toBe('735 min');
+    expect(suggestTarget('AMBER', s, settings(), 'cardio').label).toBe('700 knee-min');
+    expect(suggestTarget('GREEN', s, settings({ progressionPct: 5 }), 'cardio').label).toBe('735 knee-min');
   });
 
   it('uses the 4-week average when the last 7 days had no load', () => {
@@ -322,8 +322,24 @@ describe('strength load stream (tonnage)', () => {
     const g = run(painsEndingToday([7]), [strengthEntry(TODAY, 4213), loadEntry(TODAY, 100)]);
     expect(g.targets.map((t) => [t.stream, t.label])).toEqual([
       ['strength', '2,950–3,370 kg'],
-      ['cardio', '70–80 min'],
+      ['cardio', '70–80 knee-min'],
     ]);
+  });
+});
+
+describe('knee-load factor', () => {
+  it('3.5 h of kitesurfing counts as more load than the same time walking', () => {
+    const kite = { activityTypeId: 'kitesurfing', activityName: 'Kitesurfing' };
+    const walk = { activityTypeId: 'walking', activityName: 'Walking' };
+    // Previous week: 210 min walking (×0.5 = 105). This week: 210 min kiting (×2 = 420).
+    const g = run(painsEndingToday([1]), [loadEntry(daysAgo(13), 210, walk), loadEntry(daysAgo(1), 210, kite)]);
+    expect(g.metrics.streams.cardio.prev7).toBe(105);
+    expect(g.metrics.streams.cardio.last7).toBe(420);
+    expect(state(g, 'wow-increase', 'cardio')).toBe('fired');
+    expect(g.reasons.join(' ')).toMatch(/420 knee-min/);
+    // The same minutes on both weeks with equal factors would be flat:
+    const flat = run(painsEndingToday([1]), [loadEntry(daysAgo(13), 210, kite), loadEntry(daysAgo(1), 210, kite)]);
+    expect(state(flat, 'wow-increase', 'cardio')).toBe('ok');
   });
 });
 

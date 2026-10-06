@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DEFAULT_SETTINGS as DEFAULTS, dailyCsv, entriesCsv, validateSettings, type ActivityKind, type ActivityType, type Settings as SettingsT } from '../domain'
+import { DEFAULT_SETTINGS as DEFAULTS, dailyCsv, defaultKneeFactor, entriesCsv, validateSettings, type ActivityKind, type ActivityType, type Settings as SettingsT } from '../domain'
 import { saveSettings } from '../data/repo'
 import { Icon } from '../components/Icon'
 import { PageHeader } from '../components/Layout'
@@ -16,7 +16,7 @@ const FIELDS: { key: NumKey; label: string; hint?: string; step?: string }[] = [
   { key: 'greenMax', label: 'Green zone: pain up to', hint: 'Pain 0 to this value is green' },
   { key: 'amberMax', label: 'Amber zone: pain up to', hint: 'Above this is red' },
   { key: 'painThreshold', label: 'Pain threshold', hint: 'Daily or session pain above this → reduce load' },
-  { key: 'maxWeeklyIncreasePct', label: 'Max week-over-week load increase (%)', hint: 'Checked separately for strength (kg) and cardio (min)' },
+  { key: 'maxWeeklyIncreasePct', label: 'Max week-over-week load increase (%)', hint: 'Checked separately for strength (kg) and cardio (knee-min)' },
   { key: 'acwrLower', label: 'ACWR lower limit', step: '0.05' },
   { key: 'acwrUpper', label: 'ACWR upper limit', step: '0.05' },
   { key: 'reductionMinPct', label: 'Suggested reduction, min (%)' },
@@ -35,7 +35,7 @@ export function Settings() {
   if (loading) return <p className="py-10 text-center text-stone-500">Loading…</p>
   return <SettingsForm key={JSON.stringify(settings)} initial={settings} uid={uid} onExport={(kind) => {
     if (kind === 'daily') downloadText(`knee-tracker-daily-${today}.csv`, dailyCsv(series))
-    else downloadText(`knee-tracker-entries-${today}.csv`, entriesCsv(entries))
+    else downloadText(`knee-tracker-entries-${today}.csv`, entriesCsv(entries, settings.activityTypes))
   }} />
 }
 
@@ -94,41 +94,71 @@ function SettingsForm({ initial, uid, onExport }: { initial: SettingsT; uid: str
 
       <section className="card space-y-2">
         <h2 className="section-title">Activity types</h2>
-        {types.map((t, i) => (
-          <div key={t.id} className="flex gap-2">
-            <input
-              className="input flex-1"
-              aria-label={`Activity ${i + 1} name`}
-              value={t.name}
-              onChange={(e) => setTypes(types.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
-            />
-            <select
-              className="input w-32"
-              aria-label={`Activity ${i + 1} kind`}
-              value={t.kind}
-              onChange={(e) => setTypes(types.map((x, j) => (j === i ? { ...x, kind: e.target.value as ActivityKind } : x)))}
-            >
-              <option value="cardio">Cardio</option>
-              <option value="strength">Strength</option>
-            </select>
-            <button
-              type="button"
-              className="h-12 w-12 shrink-0 rounded-xl text-stone-500 ring-1 ring-stone-300 dark:ring-stone-700"
-              aria-label={`Remove ${t.name}`}
-              onClick={() => setTypes(types.filter((_, j) => j !== i))}
-            >
-              <Icon name="trash" className="mx-auto" />
-            </button>
-          </div>
-        ))}
+        {types.map((t, i) => {
+          const update = (patch: Partial<ActivityType>) => setTypes(types.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+          return (
+            <div key={t.id} className="space-y-2 rounded-xl bg-stone-50 p-2 ring-1 ring-stone-200 dark:bg-stone-950 dark:ring-stone-800" data-testid="activity-type-row">
+              <input
+                className="input"
+                aria-label={`Activity ${i + 1} name`}
+                value={t.name}
+                onChange={(e) => update({ name: e.target.value })}
+              />
+              <div className="flex items-end gap-2">
+                <label className="block flex-1">
+                  <span className="text-xs text-stone-500">Type</span>
+                  <select
+                    className="input"
+                    aria-label={`Activity ${i + 1} kind`}
+                    value={t.kind}
+                    onChange={(e) => {
+                      const kind = e.target.value as ActivityKind
+                      update(kind === 'cardio' ? { kind, kneeFactor: t.kneeFactor ?? defaultKneeFactor(t) } : { kind })
+                    }}
+                  >
+                    <option value="cardio">Cardio</option>
+                    <option value="strength">Strength</option>
+                  </select>
+                </label>
+                {t.kind === 'cardio' && (
+                  <label className="block w-28">
+                    <span className="text-xs text-stone-500">Knee load ×</span>
+                    <input
+                      className="input text-center"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.1"
+                      min="0.1"
+                      max="5"
+                      aria-label={`${t.name || `Activity ${i + 1}`} knee-load factor`}
+                      value={Number.isFinite(t.kneeFactor) ? String(t.kneeFactor) : ''}
+                      onChange={(e) => update({ kneeFactor: e.target.value === '' ? NaN : Number(e.target.value.replace(',', '.')) })}
+                    />
+                  </label>
+                )}
+                <button
+                  type="button"
+                  className="h-12 w-12 shrink-0 rounded-xl text-stone-500 ring-1 ring-stone-300 dark:ring-stone-700"
+                  aria-label={`Remove ${t.name}`}
+                  onClick={() => setTypes(types.filter((_, j) => j !== i))}
+                >
+                  <Icon name="trash" className="mx-auto" />
+                </button>
+              </div>
+            </div>
+          )
+        })}
         <button
           type="button"
           className="btn-secondary w-full"
-          onClick={() => setTypes([...types, { id: slug('activity'), name: '', kind: 'cardio' }])}
+          onClick={() => setTypes([...types, { id: slug('activity'), name: '', kind: 'cardio', kneeFactor: 1 }])}
         >
           <Icon name="plus" /> Add activity type
         </button>
-        <p className="text-xs text-stone-500">Past entries keep the name they were logged with.</p>
+        <p className="text-xs text-stone-500">
+          Cardio load = minutes × knee-load factor (cycling = 1). Defaults: walking 0.5, cycling 1, running 1.5, sport 1.5, kitesurfing 2 —
+          starting points to adjust with your physio. Changing a factor re-weights past sessions too. Past entries keep the name they were logged with.
+        </p>
       </section>
 
       {errors.length > 0 && (

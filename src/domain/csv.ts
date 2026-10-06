@@ -1,6 +1,6 @@
-import { cardioLoad, strengthLoad } from './load';
+import { cardioLoad, entryKneeFactor, strengthLoad } from './load';
 import type { DailyPoint } from './series';
-import type { Entry, Exercise } from './types';
+import type { ActivityType, Entry, Exercise } from './types';
 
 export function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return '';
@@ -17,6 +17,7 @@ export const DAILY_CSV_HEADER = [
   'pain_source',
   'strength_load_kg',
   'cardio_min',
+  'cardio_load_knee_min',
   'distance_km',
   'entries',
   'activities',
@@ -39,7 +40,8 @@ export function dailyCsv(series: DailyPoint[]): string {
       p.pain,
       p.dailyPain !== null ? 'daily' : p.painLogged ? 'session' : 'not_logged',
       Math.round(p.strengthLoad),
-      p.cardioLoad,
+      p.cardioMinutes,
+      round2(p.cardioLoad),
       round2(p.distanceKm),
       p.entryCount,
       p.entries.map((e) => e.activityName).join('; '),
@@ -59,7 +61,8 @@ export const ENTRIES_CSV_HEADER = [
   'duration_min',
   'distance_km',
   'strength_load_kg',
-  'cardio_min',
+  'knee_factor',
+  'cardio_load_knee_min',
   'exercises',
   'pain_during',
   'pain_next_morning',
@@ -68,7 +71,7 @@ export const ENTRIES_CSV_HEADER = [
 ];
 
 /** Every activity entry with full detail (one row per entry). */
-export function entriesCsv(entries: Entry[]): string {
+export function entriesCsv(entries: Entry[], activityTypes?: ActivityType[]): string {
   const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
   const rows: unknown[][] = [ENTRIES_CSV_HEADER];
   for (const e of sorted) {
@@ -79,7 +82,8 @@ export function entriesCsv(entries: Entry[]): string {
       e.durationMin ?? '',
       e.distanceKm ?? '',
       e.kind === 'strength' ? Math.round(strengthLoad(e)) : '',
-      e.kind === 'cardio' ? cardioLoad(e) : '',
+      e.kind === 'cardio' ? entryKneeFactor(e, activityTypes) : '',
+      e.kind === 'cardio' ? round2(cardioLoad(e, entryKneeFactor(e, activityTypes))) : '',
       (e.exercises ?? []).map(formatExercise).join('; '),
       e.painDuring ?? '',
       e.painNextMorning ?? '',

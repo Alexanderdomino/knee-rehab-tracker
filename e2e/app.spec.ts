@@ -67,7 +67,7 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   await expect(page.getByRole('radiogroup', { name: /RPE/ })).toHaveCount(0)
   await page.getByRole('button', { name: '45', exact: true }).click()
   await page.getByLabel('Distance (km, optional)').fill('15')
-  await expect(page.getByTestId('form-load')).toHaveText('45 min')
+  await expect(page.getByTestId('form-load')).toHaveText('45 knee-min')
   await page.getByRole('button', { name: 'Save session' }).click()
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
   const todayList = page.getByTestId('entry-list')
@@ -86,7 +86,7 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
 
   // --- Repeat last session ---
   await page.getByTestId('repeat-last').click()
-  await expect(page.getByTestId('form-load')).toHaveText('60 min')
+  await expect(page.getByTestId('form-load')).toHaveText('60 knee-min')
   await page.getByRole('button', { name: 'Save session' }).click()
   await expect(todayList.getByTestId('entry-row')).toHaveCount(2)
 
@@ -116,7 +116,7 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   const todayRow = page.locator(`[data-testid=history-row][data-date="${today}"]`)
   await expect(todayRow).toHaveAttribute('data-logged', 'true')
   await expect(todayRow.getByTestId('history-pain')).toHaveText('3')
-  await expect(todayRow.getByTestId('history-load')).toHaveText('120 min')
+  await expect(todayRow.getByTestId('history-load')).toHaveText('120 knee-min')
   const gapRow = page.locator(`[data-testid=history-row][data-date="${twoDaysAgo}"]`)
   await expect(gapRow).toHaveAttribute('data-logged', 'false')
   await expect(gapRow).toContainText('Not logged')
@@ -129,7 +129,7 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   await page.getByRole('button', { name: 'Delete session' }).click()
   await expect(page.getByTestId('entry-row')).toHaveCount(1)
   await page.getByRole('button', { name: 'Back' }).click()
-  await expect(todayRow.getByTestId('history-load')).toHaveText('60 min')
+  await expect(todayRow.getByTestId('history-load')).toHaveText('60 knee-min')
 
   // --- Statistics ---
   await nav(page, 'Stats')
@@ -137,9 +137,9 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   await expect(page.getByTestId('load-pain-chart').locator('.recharts-bar-rectangle').first()).toBeVisible()
   const weekly = page.getByTestId('weekly-table')
   await expect(weekly).toBeVisible()
-  // Newest week first; yesterday's 30 min walk is in the same ISO week unless today is Monday.
+  // Newest week first; yesterday's 30 min walk (× 0.5 knee factor = 15) is in the same ISO week unless today is Monday.
   const isMonday = new Date().getDay() === 1
-  await expect(weekly.getByTestId('week-cardio').first()).toHaveText(isMonday ? '60' : '90')
+  await expect(weekly.getByTestId('week-cardio').first()).toHaveText(isMonday ? '60' : '75')
   await expect(weekly.getByTestId('week-strength').first()).toHaveText('0')
   await expect(page.getByTestId('acwr-chart')).toBeVisible()
   await expect(page.getByTestId('tolerance-summary')).toBeVisible()
@@ -156,7 +156,7 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   await expect(status).toHaveAttribute('data-status', 'RED')
   await expect(page.getByTestId('status-headline')).toHaveText('Reduce load')
   await expect(status).toContainText('above your pain threshold of 2')
-  await expect(page.getByTestId('status-target')).toContainText('min')
+  await expect(page.getByTestId('status-target')).toContainText('knee-min')
 
   // --- CSV export ---
   await nav(page, 'Settings')
@@ -168,9 +168,9 @@ test('log pain and sessions, edit, review history & stats, change a threshold, e
   expect(csv[0]).toMatch(/^date,logged,daily_pain/)
   expect(csv).toHaveLength(1 + 4)
   expect(csv[1]).toMatch(new RegExp(`^${threeDaysAgo},yes,1,daily,0,`))
-  expect(csv[2]).toMatch(new RegExp(`^${twoDaysAgo},no,0,not_logged,0,0,0,0,`))
-  expect(csv[3]).toMatch(new RegExp(`^${yesterday},yes,0,not_logged,0,30,0,1,Walking,`))
-  expect(csv[4]).toMatch(new RegExp(`^${today},yes,3,daily,0,60,15,1,Cycling,2,`))
+  expect(csv[2]).toMatch(new RegExp(`^${twoDaysAgo},no,0,not_logged,0,0,0,0,0,`))
+  expect(csv[3]).toMatch(new RegExp(`^${yesterday},yes,0,not_logged,0,30,15,0,1,Walking,`))
+  expect(csv[4]).toMatch(new RegExp(`^${today},yes,3,daily,0,60,60,15,1,Cycling,2,`))
 })
 
 test('strength session with an isometric hold, validation and dark mode', async ({ page }) => {
@@ -219,4 +219,32 @@ test('strength session with an isometric hold, validation and dark mode', async 
   await waitForDocs('entries', 1)
   await page.reload()
   await expect(page.locator('html')).toHaveClass(/dark/)
+})
+
+test('kitesurfing is built in and weighted by its knee-load factor', async ({ page }) => {
+  await signIn(page)
+  // Built-in activity, no setup needed
+  await page.getByRole('button', { name: 'Kitesurfing', exact: true }).click()
+  await page.locator('#duration').fill('210')
+  await expect(page.getByTestId('form-load')).toHaveText('420 knee-min')
+  await expect(page.getByTestId('form-load-detail')).toHaveText('210 min × 2 knee-load factor')
+  await page.getByRole('button', { name: 'Save session' }).click()
+  const list = page.getByTestId('entry-list')
+  await expect(list).toContainText('Kitesurfing')
+  await expect(list).toContainText('210 min')
+  await expect(list).toContainText('420')
+
+  // Changing the factor in Settings re-weights the existing session
+  await nav(page, 'Settings')
+  const factor = page.getByLabel('Kitesurfing knee-load factor')
+  await expect(factor).toHaveValue('2')
+  await expect(page.getByLabel('Walking knee-load factor')).toHaveValue('0.5')
+  await factor.fill('9')
+  await page.getByTestId('save-settings').click()
+  await expect(page.getByRole('alert')).toContainText('Knee-load factor for Kitesurfing must be 0.1–5')
+  await factor.fill('2.5')
+  await page.getByTestId('save-settings').click()
+  await expect(page.getByText('Settings saved')).toBeVisible()
+  await nav(page, 'Today')
+  await expect(list).toContainText('525')
 })

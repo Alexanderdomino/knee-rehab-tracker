@@ -1,13 +1,68 @@
 import type { ActivityType, Settings, Zone } from './types';
 
+/**
+ * Default knee-load factors per cardio activity, relative to cycling (1.0).
+ * Starting points only — adjust them in Settings (and check with your physio).
+ */
+export const DEFAULT_KNEE_FACTORS: Record<string, number> = {
+  walking: 0.5,
+  cycling: 1,
+  other: 1,
+  running: 1.5,
+  sport: 1.5,
+  kitesurfing: 2,
+};
+
+export const KITESURFING: ActivityType = { id: 'kitesurfing', name: 'Kitesurfing', kind: 'cardio', kneeFactor: 2 };
+
 export const DEFAULT_ACTIVITY_TYPES: ActivityType[] = [
   { id: 'rehab', name: 'Knee rehab / strength', kind: 'strength' },
-  { id: 'cycling', name: 'Cycling', kind: 'cardio' },
-  { id: 'running', name: 'Running', kind: 'cardio' },
-  { id: 'walking', name: 'Walking', kind: 'cardio' },
-  { id: 'sport', name: 'Sport', kind: 'cardio' },
-  { id: 'other', name: 'Other', kind: 'cardio' },
+  { id: 'cycling', name: 'Cycling', kind: 'cardio', kneeFactor: 1 },
+  { id: 'running', name: 'Running', kind: 'cardio', kneeFactor: 1.5 },
+  { id: 'walking', name: 'Walking', kind: 'cardio', kneeFactor: 0.5 },
+  KITESURFING,
+  { id: 'sport', name: 'Sport', kind: 'cardio', kneeFactor: 1.5 },
+  { id: 'other', name: 'Other', kind: 'cardio', kneeFactor: 1 },
 ];
+
+/** Current version of the default activity-type list (2 = knee factors + Kitesurfing). */
+export const TYPES_VERSION = 2;
+
+const isKite = (t: Pick<ActivityType, 'id' | 'name'>) => /kite/i.test(t.id) || /kite/i.test(t.name);
+
+/** Default knee factor for an activity: by id, then by name (e.g. a user-made "Kite surfing"), else 1. */
+export function defaultKneeFactor(t: Pick<ActivityType, 'id' | 'name'>): number {
+  if (t.id in DEFAULT_KNEE_FACTORS) return DEFAULT_KNEE_FACTORS[t.id];
+  if (isKite(t)) return DEFAULT_KNEE_FACTORS.kitesurfing;
+  const byName = t.name.trim().toLowerCase();
+  if (byName in DEFAULT_KNEE_FACTORS) return DEFAULT_KNEE_FACTORS[byName];
+  return 1;
+}
+
+/** Knee factor to use for a cardio activity type (its own setting, else the default). */
+export function kneeFactorOf(t: ActivityType): number {
+  const f = Number(t.kneeFactor);
+  return Number.isFinite(f) && f > 0 ? f : defaultKneeFactor(t);
+}
+
+/**
+ * Bring an older stored activity list up to TYPES_VERSION: fill in missing knee
+ * factors and add Kitesurfing unless a kite activity already exists.
+ */
+export function migrateActivityTypes(types: ActivityType[], fromVersion: number): ActivityType[] {
+  if (fromVersion >= TYPES_VERSION) return types;
+  const out = types.map((t) =>
+    t.kind === 'cardio' && !(Number(t.kneeFactor) > 0) ? { ...t, kneeFactor: defaultKneeFactor(t) } : t,
+  );
+  if (!out.some(isKite)) {
+    // Insert after Walking if present, otherwise before Sport/Other, otherwise at the end.
+    const after = out.findIndex((t) => t.id === 'walking');
+    const before = out.findIndex((t) => t.id === 'sport' || t.id === 'other');
+    const at = after >= 0 ? after + 1 : before >= 0 ? before : out.length;
+    out.splice(at, 0, { ...KITESURFING });
+  }
+  return out;
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   greenMax: 2,
@@ -21,6 +76,7 @@ export const DEFAULT_SETTINGS: Settings = {
   progressionPct: 10,
   greenDaysRequired: 7,
   activityTypes: DEFAULT_ACTIVITY_TYPES,
+  typesVersion: TYPES_VERSION,
 };
 
 /** Merge a (possibly partial / older) stored settings doc over defaults. */
@@ -32,7 +88,10 @@ export function withDefaults(partial: Partial<Settings> | undefined | null): Set
   const merged = { ...DEFAULT_SETTINGS, ...known };
   if (!Array.isArray(merged.activityTypes) || merged.activityTypes.length === 0) {
     merged.activityTypes = DEFAULT_ACTIVITY_TYPES;
+  } else {
+    merged.activityTypes = migrateActivityTypes(merged.activityTypes, Number(known.typesVersion) || 1);
   }
+  merged.typesVersion = TYPES_VERSION;
   return merged;
 }
 
@@ -59,5 +118,9 @@ export function validateSettings(s: Settings): string[] {
   if (!Number.isInteger(s.greenDaysRequired) || s.greenDaysRequired < 1 || s.greenDaysRequired > 60)
     errors.push('Green days required must be a whole number 1–60.');
   if (s.activityTypes.length === 0) errors.push('Keep at least one activity type.');
+  for (const t of s.activityTypes) {
+    if (t.kind === 'cardio' && !(Number(t.kneeFactor) >= 0.1 && Number(t.kneeFactor) <= 5))
+      errors.push(`Knee-load factor for ${t.name || 'an activity'} must be 0.1–5.`);
+  }
   return errors;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardioLoad, exerciseTonnage, formatLoad, repsEquivalent, strengthLoad, tonnage } from './load';
+import { cardioLoad, cardioMinutes, entryKneeFactor, exerciseTonnage, formatLoad, repsEquivalent, strengthLoad, tonnage } from './load';
 
 describe('tonnage (strength load)', () => {
   it('sums sets × reps × kg', () => {
@@ -44,8 +44,23 @@ describe('stream loads', () => {
     expect(cardioLoad({ kind: 'cardio', durationMin: null })).toBe(0);
   });
 
+  it('cardio load is minutes × knee factor', () => {
+    expect(cardioMinutes({ kind: 'cardio', durationMin: 210 })).toBe(210);
+    expect(cardioLoad({ kind: 'cardio', durationMin: 210 }, 2)).toBe(420);
+    expect(cardioLoad({ kind: 'cardio', durationMin: 60 }, 0.5)).toBe(30);
+    expect(cardioLoad({ kind: 'cardio', durationMin: 60 }, 0)).toBe(60); // invalid factor → 1
+  });
+
+  it('looks up the knee factor from current settings, with defaults for deleted types', () => {
+    const types = [{ id: 'walking', name: 'Walking', kind: 'cardio' as const, kneeFactor: 0.7 }];
+    expect(entryKneeFactor({ activityTypeId: 'walking', activityName: 'Walking' }, types)).toBe(0.7);
+    expect(entryKneeFactor({ activityTypeId: 'kitesurfing', activityName: 'Kitesurfing' }, types)).toBe(2);
+    expect(entryKneeFactor({ activityTypeId: 'gone-123', activityName: 'Old thing' }, types)).toBe(1);
+    expect(entryKneeFactor({ activityTypeId: 'walking', activityName: 'Walking' })).toBe(0.5);
+  });
+
   it('formats with units', () => {
     expect(formatLoad(4200.4, 'strength')).toBe('4,200 kg');
-    expect(formatLoad(35, 'cardio')).toBe('35 min');
+    expect(formatLoad(35, 'cardio')).toBe('35 knee-min');
   });
 });

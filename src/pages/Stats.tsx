@@ -141,7 +141,7 @@ export function Stats() {
       <section className="card">
         <h2 className="section-title">Load & pain</h2>
         <LoadPainChart data={daily} settings={settings} streams={streams} />
-        <p className="mt-2 text-xs text-stone-500">Strength load = sets × reps × kg (holds: seconds ÷ 3 count as reps). Cardio load = minutes.</p>
+        <p className="mt-2 text-xs text-stone-500">Strength load = sets × reps × kg (holds: seconds ÷ 3 count as reps). Cardio load = minutes × the activity’s knee-load factor (knee-min).</p>
       </section>
 
       <section className="card">
@@ -202,11 +202,11 @@ export function Stats() {
 
       {cardioKeys.length > 0 && (
         <section className="card">
-          <h2 className="section-title">Cardio by activity per week (min)</h2>
+          <h2 className="section-title">Cardio by activity per week (knee-min)</h2>
           <BreakdownChart
             rows={foldRows(weeksVisible, (w) => w.cardioByType, cardioKeys)}
             types={withOther(cardioKeys, cardioTypes)}
-            unit="min"
+            unit="knee-min"
             testId="breakdown-cardio"
           />
         </section>
@@ -257,7 +257,7 @@ function WeeklyTable({ weeks }: { weeks: WeekSummary[] }) {
             <th className="py-1 pr-2 font-semibold">Week of</th>
             <th className="px-1 text-right font-semibold">Strength kg</th>
             <th className="px-1 text-right font-semibold">WoW</th>
-            <th className="px-1 text-right font-semibold">Cardio min</th>
+            <th className="px-1 text-right font-semibold">Cardio knee-min</th>
             <th className="px-1 text-right font-semibold">WoW</th>
             <th className="px-1 text-right font-semibold">Avg pain</th>
             <th className="px-1 text-right font-semibold">Max pain</th>

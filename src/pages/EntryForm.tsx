@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
-import { formatLoad, formatLong, isISODate, tonnage, type ActivityType, type Entry, type Exercise, type Settings, type Swelling } from '../domain'
+import { formatLoad, formatLong, isISODate, kneeFactorOf, tonnage, type ActivityType, type Entry, type Exercise, type Settings, type Swelling } from '../domain'
 import { addEntry, deleteEntry, updateEntry, type EntryInput } from '../data/repo'
 import { Icon } from '../components/Icon'
 import { PageHeader } from '../components/Layout'
@@ -181,9 +181,9 @@ function EntryFormInner({
     }))
   const duration = num(d.durationMin)
   // Load preview: tonnage for strength, minutes for cardio.
-  const loadLabel = strength
-    ? formatLoad(tonnage(exercises), 'strength')
-    : formatLoad(Number.isFinite(duration) ? duration : 0, 'cardio')
+  const kneeFactor = type && !strength ? kneeFactorOf(type) : 1
+  const minutes = Number.isFinite(duration) ? duration : 0
+  const loadLabel = strength ? formatLoad(tonnage(exercises), 'strength') : formatLoad(minutes * kneeFactor, 'cardio')
 
   const save = () => {
     const errs: string[] = []
@@ -431,6 +431,11 @@ function EntryFormInner({
           <div className="text-sm leading-tight">
             <span className="block text-xs text-stone-500">{strength ? 'Strength load' : 'Cardio load'}</span>
             <span className="text-lg font-bold tabular-nums" data-testid="form-load">{loadLabel}</span>
+            {!strength && (
+              <span className="block text-xs text-stone-500" data-testid="form-load-detail">
+                {minutes} min × {kneeFactor} knee-load factor
+              </span>
+            )}
           </div>
           <button type="submit" className="btn-primary flex-1 text-lg">
             {existing ? 'Save changes' : 'Save session'}
