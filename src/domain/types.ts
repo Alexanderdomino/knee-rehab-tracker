@@ -8,6 +8,11 @@ export interface ActivityType {
   id: string;
   name: string;
   kind: ActivityKind;
+  /**
+   * Cardio only: how hard this activity is on the knee per minute, relative to
+   * cycling (1.0). Cardio load = minutes × factor. Defaults per activity.
+   */
+  kneeFactor?: number;
 }
 
 export interface Exercise {
@@ -64,6 +69,12 @@ export interface Settings {
   /** Number of logged green days required before progressing (default 7). */
   greenDaysRequired: number;
   activityTypes: ActivityType[];
+  /**
+   * Version of the default activity-type list this settings doc has been
+   * migrated to. Older docs get new defaults (knee factors, Kitesurfing) added
+   * on read; once saved at the current version, the user's edits win.
+   */
+  typesVersion: number;
 }
 
 export type Zone = 'green' | 'amber' | 'red';
@@ -71,6 +82,6 @@ export type Status = 'GREEN' | 'AMBER' | 'RED';
 
 /**
  * Load is tracked as two separate streams that can't be added together:
- * strength = tonnage in kg, cardio = minutes.
+ * strength = tonnage in kg, cardio = knee-minutes (minutes × activity knee-load factor).
  */
 export type LoadStream = 'strength' | 'cardio';

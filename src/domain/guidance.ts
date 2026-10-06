@@ -33,7 +33,7 @@ export type RuleState = 'fired' | 'ok' | 'insufficient';
 
 export interface RuleCheck {
   id: RuleId;
-  /** Load stream a load rule was evaluated for (strength = kg, cardio = minutes). */
+  /** Load stream a load rule was evaluated for (strength = kg, cardio = knee-minutes). */
   stream?: LoadStream;
   /** Status this rule pushes towards when it fires. */
   level: 'RED' | 'AMBER';

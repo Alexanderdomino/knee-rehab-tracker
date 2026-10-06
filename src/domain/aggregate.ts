@@ -10,7 +10,7 @@ export interface WeekSummary {
   daysLogged: number;
   /** Strength tonnage (kg) for the week. */
   strengthLoad: number;
-  /** Cardio minutes for the week. */
+  /** Cardio load (knee-minutes) for the week. */
   cardioLoad: number;
   /** Week-over-week % change per stream; null if no previous week or its load was 0. */
   strengthWowPct: number | null;

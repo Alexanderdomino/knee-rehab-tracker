@@ -58,7 +58,7 @@ function DailyTip({ active, payload }: DailyTipProps) {
       {p.logged ? (
         <>
           {p.strengthLoad > 0 && <p>Strength: {formatLoad(p.strengthLoad, 'strength')}</p>}
-          {p.cardioLoad > 0 && <p>Cardio: {formatLoad(p.cardioLoad, 'cardio')}</p>}
+          {p.cardioLoad > 0 && <p>Cardio: {formatLoad(p.cardioLoad, 'cardio')} ({Math.round(p.cardioMinutes)} min)</p>}
           <p>Pain: {p.painLogged ? p.pain : '0 (pain not logged)'}</p>
         </>
       ) : (
@@ -71,7 +71,7 @@ function DailyTip({ active, payload }: DailyTipProps) {
 const STREAM_COLOR: Record<LoadStream, string> = { strength: SERIES[0], cardio: SERIES[1] }
 
 /**
- * Daily strength load (kg) and cardio load (min) as bars, and daily pain as a
+ * Daily strength load (kg) and cardio load (knee-min) as bars, and daily pain as a
  * line: stacked panels sharing the x-axis and tooltip, never a dual-axis chart.
  */
 export function LoadPainChart({ data, settings, streams }: { data: DailyPoint[]; settings: Settings; streams: LoadStream[] }) {
@@ -81,7 +81,7 @@ export function LoadPainChart({ data, settings, streams }: { data: DailyPoint[];
       {streams.map((stream) => (
         <div key={stream} className="mb-2">
           <p className="mb-1 text-xs font-semibold text-stone-500">
-            {stream === 'strength' ? 'Strength load per day (kg)' : 'Cardio per day (min)'}
+            {stream === 'strength' ? 'Strength load per day (kg)' : 'Cardio load per day (knee-min)'}
           </p>
           <ResponsiveContainer width="100%" height={130}>
             <BarChart data={data} syncId="daily" margin={{ top: 4, right: 8, left: -8, bottom: 0 }} barCategoryGap={1}>

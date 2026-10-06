@@ -1,4 +1,5 @@
-import type { Entry, Exercise, LoadStream } from './types';
+import { defaultKneeFactor, kneeFactorOf } from './settings';
+import type { ActivityType, Entry, Exercise, LoadStream } from './types';
 
 /** A hold of this many seconds counts the same as one rep. */
 export const SECONDS_PER_REP = 3;
@@ -33,24 +34,47 @@ export function strengthLoad(entry: Pick<Entry, 'kind' | 'exercises'>): number {
   return entry.kind === 'strength' ? tonnage(entry.exercises) : 0;
 }
 
-/** Cardio load of an entry: its duration in minutes. Strength entries contribute 0. */
-export function cardioLoad(entry: Pick<Entry, 'kind' | 'durationMin'>): number {
+/** Raw cardio minutes of an entry. Strength entries contribute 0. */
+export function cardioMinutes(entry: Pick<Entry, 'kind' | 'durationMin'>): number {
   return entry.kind === 'cardio' ? n(entry.durationMin) : 0;
 }
 
-export function entryLoad(entry: Pick<Entry, 'kind' | 'exercises' | 'durationMin'>, stream: LoadStream): number {
-  return stream === 'strength' ? strengthLoad(entry) : cardioLoad(entry);
+/**
+ * Cardio load of an entry in knee-minutes = minutes × the activity's knee-load
+ * factor (cycling = 1). Strength entries contribute 0.
+ */
+export function cardioLoad(entry: Pick<Entry, 'kind' | 'durationMin'>, kneeFactor = 1): number {
+  return cardioMinutes(entry) * (kneeFactor > 0 ? kneeFactor : 1);
+}
+
+/**
+ * Knee factor for an entry, looked up from the current activity types so that
+ * changing a factor in Settings re-weights past sessions consistently. Entries
+ * whose type was deleted fall back to the default for their id/name.
+ */
+export function entryKneeFactor(entry: Pick<Entry, 'activityTypeId' | 'activityName'>, types?: ActivityType[]): number {
+  const t = types?.find((x) => x.id === entry.activityTypeId);
+  return t ? kneeFactorOf(t) : defaultKneeFactor({ id: entry.activityTypeId, name: entry.activityName ?? '' });
+}
+
+export function entryLoad(
+  entry: Pick<Entry, 'kind' | 'exercises' | 'durationMin' | 'activityTypeId' | 'activityName'>,
+  stream: LoadStream,
+  types?: ActivityType[],
+): number {
+  return stream === 'strength' ? strengthLoad(entry) : cardioLoad(entry, entryKneeFactor(entry, types));
 }
 
 export const STREAMS: { key: LoadStream; label: string; unit: string }[] = [
   { key: 'strength', label: 'Strength', unit: 'kg' },
-  { key: 'cardio', label: 'Cardio', unit: 'min' },
+  { key: 'cardio', label: 'Cardio', unit: 'knee-min' },
 ];
 
-export const STREAM_UNIT: Record<LoadStream, string> = { strength: 'kg', cardio: 'min' };
+/** Cardio load is in knee-minutes: minutes × the activity's knee-load factor. */
+export const STREAM_UNIT: Record<LoadStream, string> = { strength: 'kg', cardio: 'knee-min' };
 export const STREAM_LABEL: Record<LoadStream, string> = { strength: 'Strength', cardio: 'Cardio' };
 
-/** Human-readable load, e.g. "4,200 kg" or "35 min". */
+/** Human-readable load, e.g. "4,200 kg" or "420 knee-min". */
 export function formatLoad(value: number, stream: LoadStream): string {
   return `${Math.round(value).toLocaleString('en-US')} ${STREAM_UNIT[stream]}`;
 }

@@ -73,7 +73,7 @@ function cleanEntry(e: EntryInput) {
     activityTypeId: e.activityTypeId,
     activityName: e.activityName,
     kind: e.kind,
-    // Cardio load = minutes; strength load comes from the exercises (tonnage).
+    // Cardio load = minutes × knee factor (from settings); strength load comes from the exercises.
     durationMin: e.kind === 'cardio' ? (e.durationMin ?? null) : null,
     distanceKm: e.kind === 'cardio' ? (e.distanceKm ?? null) : null,
     exercises:

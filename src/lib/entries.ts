@@ -1,4 +1,4 @@
-import { cardioLoad, strengthLoad, type Entry, type Exercise, type LoadStream } from '../domain'
+import { cardioLoad, entryKneeFactor, strengthLoad, type ActivityType, type Entry, type Exercise, type LoadStream } from '../domain'
 
 const newer = (a: Entry, b: Entry) => a.date > b.date || (a.date === b.date && (a.createdAt ?? 0) > (b.createdAt ?? 0))
 
@@ -30,7 +30,9 @@ export function describeExercise(x: Exercise): string {
   return `${x.name} ${x.sets}×${perSet}${x.loadKg ? ` @ ${x.loadKg} kg` : ''}`
 }
 
-/** The load an entry contributes: kg for strength, minutes for cardio. */
-export function entryLoad(e: Entry): { value: number; stream: LoadStream } {
-  return e.kind === 'strength' ? { value: strengthLoad(e), stream: 'strength' } : { value: cardioLoad(e), stream: 'cardio' }
+/** The load an entry contributes: kg for strength, knee-minutes for cardio. */
+export function entryLoad(e: Entry, types?: ActivityType[]): { value: number; stream: LoadStream } {
+  return e.kind === 'strength'
+    ? { value: strengthLoad(e), stream: 'strength' }
+    : { value: cardioLoad(e, entryKneeFactor(e, types)), stream: 'cardio' }
 }

@@ -1,7 +1,7 @@
 import { addDays } from './dates';
 import { buildDailySeries } from './series';
 import { DEFAULT_SETTINGS } from './settings';
-import type { DayLog, Entry, ISODate, Settings } from './types';
+import type { ActivityType, DayLog, Entry, ISODate, Settings } from './types';
 
 let seq = 0;
 
@@ -49,6 +49,6 @@ export function settings(overrides: Partial<Settings> = {}): Settings {
   return { ...DEFAULT_SETTINGS, ...overrides };
 }
 
-export function series(days: DayLog[], entries: Entry[], end: ISODate, start?: ISODate) {
-  return buildDailySeries(days, entries, end, start);
+export function series(days: DayLog[], entries: Entry[], end: ISODate, start?: ISODate, types?: ActivityType[]) {
+  return buildDailySeries(days, entries, end, start, types);
 }

@@ -57,6 +57,21 @@ describe('buildDailySeries gap filling', () => {
     expect(s[0].tonnageByExercise).toEqual({ Squat: 1300, 'Iso leg extension': 1200 });
   });
 
+  it('weights cardio by the knee factor from settings and keeps raw minutes', () => {
+    const entries = [
+      loadEntry('2026-06-02', 210, { activityTypeId: 'kitesurfing', activityName: 'Kitesurfing' }),
+      loadEntry('2026-06-02', 60, { activityTypeId: 'walking', activityName: 'Walking' }),
+    ];
+    const withDefaults = series([], entries, '2026-06-02');
+    expect(withDefaults[0]).toMatchObject({ cardioMinutes: 270, cardioLoad: 420 + 30 });
+    expect(withDefaults[0].cardioByType).toEqual({ Kitesurfing: 420, Walking: 30 });
+    const custom = series([], entries, '2026-06-02', undefined, [
+      { id: 'kitesurfing', name: 'Kitesurfing', kind: 'cardio', kneeFactor: 3 },
+      { id: 'walking', name: 'Walking', kind: 'cardio', kneeFactor: 1 },
+    ]);
+    expect(custom[0].cardioLoad).toBe(630 + 60);
+  });
+
   it('daily score takes precedence over session pain', () => {
     const s = series([{ date: '2026-06-01', pain: 1 }], [entry('2026-06-01', { painDuring: 4 })], '2026-06-01');
     expect(s[0].pain).toBe(1);

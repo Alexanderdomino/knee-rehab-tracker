@@ -99,7 +99,11 @@ There's no effort rating (RPE) to fill in. Load is measured from what you did, a
 - **Strength load** = tonnage in kg = Σ sets × reps × kg. Heavier work counts for more on its own: a Romanian deadlift at 3 × 8 @ 60 kg (1,440 kg)
   outweighs a light accessory exercise. **Isometric holds** log seconds instead of reps and count *seconds ÷ 3* as reps, so 4 × 45 s @ 20 kg =
   4 × 15 × 20 = 1,200 kg. Bodyweight-only exercises (0 kg) add 0.
-- **Cardio load** = minutes (distance is recorded but not used for load).
+- **Cardio load** = minutes × the activity's **knee-load factor**, in *knee-minutes*. The factor says how hard an activity is on the knee
+  per minute, relative to cycling (1.0). Defaults: walking 0.5, cycling 1, other 1, running 1.5, sport 1.5, **kitesurfing 2** (built in).
+  These are starting points: change them per activity in **Settings → Activity types** (0.1–5), ideally with your physio. Factors are
+  applied when the data is read, so changing one re-weights past sessions too and keeps week-to-week comparisons consistent. 3.5 h of
+  kitesurfing = 210 min × 2 = 420 knee-min. Distance is recorded but not used for load.
 - **Acute load** = 7-day rolling average daily load. **Chronic load** = 28-day rolling average. **ACWR** = acute / chronic. All of these are computed
   per stream.
 
@@ -139,7 +143,7 @@ morning.
 | Rule | Fires when | Not enough data when |
 | --- | --- | --- |
 | Amber pain today | Reference-day pain is in the amber zone (or worse) | No pain today/yesterday |
-| Week-over-week increase | Strength (kg) **or** cardio (min) over the last 7 days vs the 7 days before rises **> max %** (default 10%) | Fewer than 14 days of history, or that stream's previous 7 days had 0 load |
+| Week-over-week increase | Strength (kg) **or** cardio (knee-min) over the last 7 days vs the 7 days before rises **> max %** (default 10%) | Fewer than 14 days of history, or that stream's previous 7 days had 0 load |
 | Rising pain trend | Least-squares slope of pain over the **last 7 logged pain days** (x = actual calendar day) is **> 0** | Fewer than 7 logged pain days |
 
 ### GREEN: OK to progress (only if)
@@ -156,7 +160,7 @@ Thresholds are compared strictly at the boundaries: pain *equal to* the threshol
 
 ### Suggested target for the next 7 days
 
-One target per stream you use (e.g. *Strength 6,300–7,200 kg · Cardio 98–112 min*). Base = that stream's load over the last 7 days. If
+One target per stream you use (e.g. *Strength 6,300–7,200 kg · Cardio 98–112 knee-min*). Base = that stream's load over the last 7 days. If
 that's 0, its 28-day weekly average is used instead. Kilos are rounded to the nearest 10.
 
 - **RED:** base × (1 − 30%) … base × (1 − 20%), shown as a range (e.g. `700–800 min`)

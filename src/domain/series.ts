@@ -1,6 +1,6 @@
 import { addDays, dateRange } from './dates';
-import { cardioLoad, exerciseTonnage } from './load';
-import type { DayLog, Entry, ISODate, LoadStream, Swelling } from './types';
+import { cardioLoad, cardioMinutes, entryKneeFactor, exerciseTonnage } from './load';
+import type { ActivityType, DayLog, Entry, ISODate, LoadStream, Swelling } from './types';
 
 /**
  * One calendar day after gap-filling. Days with neither a daily pain score nor
@@ -24,11 +24,13 @@ export interface DailyPoint {
   nextMorningPain: number | null;
   /** Strength load: tonnage in kg (sets × reps × kg; holds count seconds ÷ 3 as reps). */
   strengthLoad: number;
-  /** Cardio load: minutes. */
+  /** Cardio load in knee-minutes: Σ minutes × activity knee-load factor. */
   cardioLoad: number;
+  /** Raw cardio minutes (unweighted). */
+  cardioMinutes: number;
   distanceKm: number;
   entryCount: number;
-  /** Cardio minutes per activity name. */
+  /** Cardio load (knee-minutes) per activity name. */
   cardioByType: Record<string, number>;
   /** Strength tonnage per exercise name. */
   tonnageByExercise: Record<string, number>;
@@ -68,6 +70,7 @@ export function emptyPoint(date: ISODate): DailyPoint {
     nextMorningPain: null,
     strengthLoad: 0,
     cardioLoad: 0,
+    cardioMinutes: 0,
     distanceKm: 0,
     entryCount: 0,
     cardioByType: {},
@@ -80,12 +83,14 @@ export function emptyPoint(date: ISODate): DailyPoint {
 /**
  * Build a continuous daily series from `start` (default: first log) to `end`
  * (inclusive). Missing days are filled at read time; nothing is written.
+ * `activityTypes` supplies the knee-load factors for cardio (defaults if omitted).
  */
 export function buildDailySeries(
   days: DayLog[],
   entries: Entry[],
   end: ISODate,
   start?: ISODate,
+  activityTypes?: ActivityType[],
 ): DailyPoint[] {
   const from = start ?? firstLogDate(days, entries);
   if (!from || from > end) return [];
@@ -119,11 +124,12 @@ export function buildDailySeries(
         p.tonnageByExercise[name] = (p.tonnageByExercise[name] ?? 0) + t;
       }
     } else {
-      const minutes = cardioLoad(e);
-      p.cardioLoad += minutes;
+      const load = cardioLoad(e, entryKneeFactor(e, activityTypes));
+      p.cardioLoad += load;
+      p.cardioMinutes += cardioMinutes(e);
       p.distanceKm += Number(e.distanceKm) || 0;
       const typeKey = e.activityName || e.activityTypeId;
-      p.cardioByType[typeKey] = (p.cardioByType[typeKey] ?? 0) + minutes;
+      p.cardioByType[typeKey] = (p.cardioByType[typeKey] ?? 0) + load;
     }
     p.maxSessionPain = maxOrNull(p.maxSessionPain, e.painDuring);
     p.nextMorningPain = maxOrNull(p.nextMorningPain, e.painNextMorning);
@@ -155,7 +161,7 @@ export function pointAt(series: DailyPoint[], date: ISODate): DailyPoint | null 
   return p && p.date === date ? p : null;
 }
 
-/** Load of a day in the given stream (kg for strength, minutes for cardio). */
+/** Load of a day in the given stream (kg for strength, knee-minutes for cardio). */
 export function streamValue(p: DailyPoint, stream: LoadStream): number {
   return stream === 'strength' ? p.strengthLoad : p.cardioLoad;
 }

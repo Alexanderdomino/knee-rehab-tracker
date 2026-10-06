@@ -1,9 +1,11 @@
 import { Link } from 'react-router'
 import { STREAM_UNIT, type Entry } from '../domain'
 import { entryLoad, entrySummary } from '../lib/entries'
+import { useData } from '../state/data'
 import { Icon } from './Icon'
 
 export function EntryList({ entries }: { entries: Entry[] }) {
+  const { settings } = useData()
   if (!entries.length) return null
   return (
     <ul className="divide-y divide-stone-200 dark:divide-stone-800" data-testid="entry-list">
@@ -20,7 +22,9 @@ export function EntryList({ entries }: { entries: Entry[] }) {
               </p>
             </div>
             <span className="text-right">
-              <span className="block text-lg font-bold tabular-nums">{Math.round(entryLoad(e).value).toLocaleString('en-US')}</span>
+              <span className="block text-lg font-bold tabular-nums">
+                {Math.round(entryLoad(e, settings.activityTypes).value).toLocaleString('en-US')}
+              </span>
               <span className="block text-xs text-stone-500">{STREAM_UNIT[entryLoad(e).stream]}</span>
             </span>
             <Icon name="chevron" className="text-stone-400" />
