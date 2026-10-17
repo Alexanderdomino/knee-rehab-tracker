@@ -15,7 +15,7 @@ export function EntryList({ entries }: { entries: Entry[] }) {
             <div className="flex-1">
               <p className="font-semibold">{e.activityName}</p>
               <p className="text-sm text-stone-600 dark:text-stone-400">
-                {entrySummary(e)}
+                {entrySummary(e, settings)}
                 {e.painDuring != null && ` · pain ${e.painDuring}`}
                 {e.painNextMorning != null && ` · next AM ${e.painNextMorning}`}
                 {e.swelling !== 'none' && ` · ${e.swelling} swelling`}
@@ -23,7 +23,7 @@ export function EntryList({ entries }: { entries: Entry[] }) {
             </div>
             <span className="text-right">
               <span className="block text-lg font-bold tabular-nums">
-                {Math.round(entryLoad(e, settings.activityTypes).value).toLocaleString('en-US')}
+                {Math.round(entryLoad(e, settings).value).toLocaleString('en-US')}
               </span>
               <span className="block text-xs text-stone-500">{STREAM_UNIT[entryLoad(e).stream]}</span>
             </span>

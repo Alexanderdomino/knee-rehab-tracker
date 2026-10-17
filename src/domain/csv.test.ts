@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { csvEscape, dailyCsv, entriesCsv } from './csv';
+import { csvEscape, dailyCsv, entriesCsv, formatExercise } from './csv';
 import { entry, loadEntry, series } from './testUtils';
 
 describe('CSV export', () => {
@@ -39,7 +39,15 @@ describe('CSV export', () => {
     const s = series([], [loadEntry('2026-03-02', 210, { activityTypeId: 'kitesurfing', activityName: 'Kitesurfing' })], '2026-03-02');
     expect(dailyCsv(s).split('\r\n')[1]).toBe('2026-03-02,yes,0,not_logged,0,210,420,0,1,Kitesurfing,,,none,');
     const types = [{ id: 'kitesurfing', name: 'Kitesurfing', kind: 'cardio' as const, kneeFactor: 2.5 }];
-    expect(entriesCsv(s[0].entries, types).split('\r\n')[1]).toBe('2026-03-02,Kitesurfing,cardio,210,,,2.5,525,,,,none,');
+    expect(entriesCsv(s[0].entries, { activityTypes: types }).split('\r\n')[1]).toBe('2026-03-02,Kitesurfing,cardio,210,,,2.5,525,,,,none,');
+  });
+
+  it('formats per-set exercises and marks bodyweight exercises', () => {
+    expect(formatExercise({ name: 'RDL', sets: 2, reps: 10, loadKg: 60, setDetails: [{ reps: 10, loadKg: 60 }, { reps: 8, loadKg: 65 }] })).toBe(
+      'RDL 10@60kg|8@65kg',
+    );
+    const ctx = { bodyweightKg: 80, bodyweightExercises: ['Bulgarian split squat'] };
+    expect(formatExercise({ name: 'Bulgarian split squat', sets: 3, reps: 10, loadKg: 0 }, ctx)).toBe('Bulgarian split squat 3x10@0kg+BW');
   });
 
   it('escapes special characters', () => {

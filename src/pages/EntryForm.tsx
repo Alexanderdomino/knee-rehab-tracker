@@ -1,7 +1,21 @@
 import { useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
-import { formatLoad, formatLong, isISODate, kneeFactorOf, tonnage, type ActivityType, type Entry, type Exercise, type Settings, type Swelling } from '../domain'
-import { addEntry, deleteEntry, updateEntry, type EntryInput } from '../data/repo'
+import {
+  exerciseSets,
+  formatLoad,
+  formatLong,
+  isBodyweightExercise,
+  isISODate,
+  kneeFactorOf,
+  normalizeExerciseName,
+  tonnage,
+  type ActivityType,
+  type Entry,
+  type Exercise,
+  type Settings,
+  type Swelling,
+} from '../domain'
+import { addEntry, deleteEntry, saveSettings, updateEntry, type EntryInput } from '../data/repo'
 import { Icon } from '../components/Icon'
 import { PageHeader } from '../components/Layout'
 import { PainScale, Segmented } from '../components/PainScale'
@@ -10,14 +24,19 @@ import { useGoBack } from '../lib/useGoBack'
 import { useData } from '../state/data'
 import { useToast, useWrite } from '../state/toast'
 
-interface ExerciseDraft {
-  name: string
-  sets: string
+interface SetDraft {
   reps: string
   loadKg: string
-  /** Isometric hold: `holdSec` replaces reps. */
-  hold: boolean
   holdSec: string
+}
+
+interface ExerciseDraft {
+  /** Stable React key so inputs keep focus/state when exercises are reordered. */
+  key: string
+  name: string
+  /** Isometric hold: each set records seconds instead of reps. */
+  hold: boolean
+  sets: SetDraft[]
 }
 
 interface Draft {
@@ -35,15 +54,33 @@ interface Draft {
 const DURATIONS = [15, 20, 30, 45, 60, 90]
 const num = (s: string) => (s.trim() === '' ? NaN : Number(s.replace(',', '.')))
 const str = (n: number | null | undefined) => (n === null || n === undefined || Number.isNaN(n) ? '' : String(n))
-const toExerciseDraft = (x: Exercise): ExerciseDraft => ({
-  name: x.name,
-  sets: str(x.sets),
-  reps: x.holdSec ? '10' : str(x.reps),
-  loadKg: str(x.loadKg),
-  hold: !!x.holdSec,
-  holdSec: x.holdSec ? str(x.holdSec) : '30',
-})
-const blankExercise = (): ExerciseDraft => ({ name: '', sets: '3', reps: '10', loadKg: '', hold: false, holdSec: '30' })
+let keySeq = 0
+const nextKey = () => `x${++keySeq}`
+const blankSet = (): SetDraft => ({ reps: '10', loadKg: '', holdSec: '30' })
+const toExerciseDraft = (x: Exercise): ExerciseDraft => {
+  const sets = exerciseSets(x)
+  return {
+    key: nextKey(),
+    name: x.name,
+    hold: sets.some((set) => !!set.holdSec),
+    sets: sets.length
+      ? sets.map((set) => ({
+          reps: set.holdSec ? '10' : str(set.reps),
+          loadKg: str(set.loadKg),
+          holdSec: set.holdSec ? str(set.holdSec) : '30',
+        }))
+      : [blankSet()],
+  }
+}
+const blankExercise = (): ExerciseDraft => ({ key: nextKey(), name: '', hold: false, sets: [blankSet(), blankSet(), blankSet()] })
+
+/** Move item `from` to index `to` (returns a new array). */
+function moveItem<T>(list: T[], from: number, to: number): T[] {
+  const out = [...list]
+  const [item] = out.splice(from, 1)
+  out.splice(Math.max(0, Math.min(to, out.length)), 0, item)
+  return out
+}
 
 function draftFrom(e: Entry, overrides: Partial<Draft> = {}): Draft {
   return {
@@ -170,27 +207,49 @@ function EntryFormInner({
     })
   }
 
+  const [localBw, setLocalBw] = useState<string[] | null>(null)
+  const bodyweightExercises = localBw ?? settings.bodyweightExercises
+  const loadCtx = { ...settings, bodyweightExercises }
+
   const exercises: Exercise[] = d.exercises
-    .filter((x) => x.name.trim() || x.loadKg.trim())
-    .map((x) => ({
-      name: x.name.trim() || 'Exercise',
-      sets: num(x.sets) || 0,
-      reps: x.hold ? 0 : num(x.reps) || 0,
-      loadKg: num(x.loadKg) || 0,
-      holdSec: x.hold ? num(x.holdSec) || 0 : null,
-    }))
+    .filter((x) => x.name.trim() || x.sets.some((set) => set.loadKg.trim()))
+    .map((x) => {
+      const setDetails = x.sets.map((set) => ({
+        reps: x.hold ? 0 : num(set.reps) || 0,
+        loadKg: num(set.loadKg) || 0,
+        holdSec: x.hold ? num(set.holdSec) || 0 : null,
+      }))
+      const first = setDetails[0] ?? { reps: 0, loadKg: 0, holdSec: null }
+      return { name: x.name.trim() || 'Exercise', setDetails, sets: setDetails.length, reps: first.reps, loadKg: first.loadKg, holdSec: first.holdSec }
+    })
   const duration = num(d.durationMin)
   // Load preview: tonnage for strength, minutes for cardio.
   const kneeFactor = type && !strength ? kneeFactorOf(type) : 1
   const minutes = Number.isFinite(duration) ? duration : 0
-  const loadLabel = strength ? formatLoad(tonnage(exercises), 'strength') : formatLoad(minutes * kneeFactor, 'cardio')
+  const loadLabel = strength ? formatLoad(tonnage(exercises, loadCtx), 'strength') : formatLoad(minutes * kneeFactor, 'cardio')
+
+  const updateExercise = (i: number, patch: Partial<ExerciseDraft>) =>
+    set('exercises', d.exercises.map((y, j) => (j === i ? { ...y, ...patch } : y)))
+  const moveExercise = (from: number, to: number) => set('exercises', moveItem(d.exercises, from, to))
+
+  // Marking an exercise as bodyweight is a setting (it applies to every session with that name).
+  // Shown immediately; the settings write syncs in the background.
+  const toggleBodyweight = (name: string, on: boolean) => {
+    const key = normalizeExerciseName(name)
+    const rest = bodyweightExercises.filter((b) => normalizeExerciseName(b) !== key)
+    const next = on ? [...rest, name.trim()] : rest
+    setLocalBw(next)
+    write(saveSettings(uid, { ...settings, bodyweightExercises: next }))
+  }
 
   const save = () => {
     const errs: string[] = []
     if (!type) errs.push('Choose an activity type.')
     if (!strength && (!Number.isFinite(duration) || duration <= 0 || duration > 1440)) errs.push('Duration must be 1–1440 minutes.')
     if (strength && exercises.length === 0) errs.push('Add at least one exercise.')
-    if (strength && exercises.some((x) => x.holdSec != null && !(x.holdSec > 0))) errs.push('Hold time must be more than 0 seconds.')
+    if (strength && exercises.some((x) => (x.setDetails ?? []).length === 0)) errs.push('Each exercise needs at least one set.')
+    if (strength && exercises.some((x) => (x.setDetails ?? []).some((set) => set.holdSec != null && !(set.holdSec > 0))))
+      errs.push('Hold time must be more than 0 seconds.')
     const dist = num(d.distanceKm)
     if (d.distanceKm.trim() && (!Number.isFinite(dist) || dist < 0 || dist > 1000)) errs.push('Distance must be 0–1000 km.')
     if (!isISODate(d.date)) errs.push('Pick a valid date.')
@@ -318,23 +377,22 @@ function EntryFormInner({
 
         {strength && (
           <div>
-            <span className="label">Exercises — load = sets × reps × kg (a hold counts its seconds ÷ 3 as reps)</span>
-            <div className="space-y-2">
+            <span className="label">Exercises — load = reps × kg per set (a hold counts its seconds ÷ 3 as reps)</span>
+            <div className="space-y-3">
               {d.exercises.map((x, i) => {
-                const upd = <K extends keyof ExerciseDraft>(k: K, v: ExerciseDraft[K]) =>
-                  set(
-                    'exercises',
-                    d.exercises.map((y, j) => (j === i ? { ...y, [k]: v } : y)),
-                  )
+                const isBw = !!x.name.trim() && isBodyweightExercise(x.name, bodyweightExercises)
+                const unit = x.hold ? 'seconds' : 'reps'
+                const updateSet = (j: number, patch: Partial<SetDraft>) =>
+                  updateExercise(i, { sets: x.sets.map((y, k) => (k === j ? { ...y, ...patch } : y)) })
                 return (
-                  <div key={i} className="rounded-xl bg-stone-50 p-2 ring-1 ring-stone-200 dark:bg-stone-950 dark:ring-stone-800" data-testid="exercise-row">
+                  <div key={x.key} className="space-y-2 rounded-xl bg-stone-50 p-2 ring-1 ring-stone-200 dark:bg-stone-950 dark:ring-stone-800" data-testid="exercise-row">
                     <div className="flex gap-2">
                       <input
                         className="input flex-1"
                         placeholder="Exercise"
                         aria-label={`Exercise ${i + 1} name`}
                         value={x.name}
-                        onChange={(e) => upd('name', e.target.value)}
+                        onChange={(e) => updateExercise(i, { name: e.target.value })}
                       />
                       <button
                         type="button"
@@ -345,33 +403,103 @@ function EntryFormInner({
                         <Icon name="trash" className="mx-auto" />
                       </button>
                     </div>
-                    <div className="mt-2">
-                      <Segmented
-                        label={`Exercise ${i + 1} type`}
-                        value={x.hold ? 'hold' : 'reps'}
-                        onChange={(v) => upd('hold', v === 'hold')}
-                        options={[
-                          { value: 'reps', label: 'Reps' },
-                          { value: 'hold', label: 'Hold (seconds)' },
-                        ]}
-                      />
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="mr-auto text-xs text-stone-500">Move</span>
+                      {(
+                        [
+                          ['top', 'to top', 0],
+                          ['up', 'up', i - 1],
+                          ['down', 'down', i + 1],
+                        ] as const
+                      ).map(([icon, label, to]) => (
+                        <button
+                          key={icon}
+                          type="button"
+                          className="h-11 w-11 rounded-lg text-stone-600 ring-1 ring-stone-300 disabled:opacity-30 dark:text-stone-300 dark:ring-stone-700"
+                          aria-label={`Move exercise ${i + 1} ${label}`}
+                          disabled={icon === 'down' ? i === d.exercises.length - 1 : i === 0}
+                          onClick={() => moveExercise(i, to)}
+                        >
+                          <Icon name={icon} className="mx-auto" />
+                        </button>
+                      ))}
                     </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2">
-                      {(['sets', x.hold ? 'holdSec' : 'reps', 'loadKg'] as const).map((k) => {
-                        const label = k === 'loadKg' ? 'kg' : k === 'holdSec' ? 'seconds' : k
-                        return (
-                          <label key={k} className="block">
-                            <span className="text-xs text-stone-500">{label}</span>
-                            <input
-                              className="input text-center"
-                              inputMode="decimal"
-                              aria-label={`Exercise ${i + 1} ${label}`}
-                              value={x[k]}
-                              onChange={(e) => upd(k, e.target.value)}
-                            />
-                          </label>
-                        )
-                      })}
+
+                    <Segmented
+                      label={`Exercise ${i + 1} type`}
+                      value={x.hold ? 'hold' : 'reps'}
+                      onChange={(v) => updateExercise(i, { hold: v === 'hold' })}
+                      options={[
+                        { value: 'reps', label: 'Reps' },
+                        { value: 'hold', label: 'Hold (seconds)' },
+                      ]}
+                    />
+
+                    <label className="flex min-h-11 items-center gap-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5 accent-teal-700"
+                        checked={isBw}
+                        disabled={!x.name.trim()}
+                        aria-label={`Exercise ${i + 1} uses body weight`}
+                        onChange={(e) => toggleBodyweight(x.name, e.target.checked)}
+                      />
+                      <span>
+                        Uses body weight
+                        {isBw && (
+                          <span className="block text-xs text-stone-500">
+                            {settings.bodyweightKg
+                              ? `${settings.bodyweightKg} kg is added to each set — enter only extra weight below.`
+                              : 'Set your body weight in Settings so it counts.'}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+
+                    <div className="space-y-1.5" role="group" aria-label={`Exercise ${i + 1} sets`}>
+                      <div className="grid grid-cols-[2rem_1fr_1fr_2.75rem] gap-2 px-1 text-xs text-stone-500">
+                        <span>Set</span>
+                        <span>{unit}</span>
+                        <span>{isBw ? '+ kg' : 'kg'}</span>
+                        <span />
+                      </div>
+                      {x.sets.map((setDraft, j) => (
+                        <div key={j} className="grid grid-cols-[2rem_1fr_1fr_2.75rem] items-center gap-2" data-testid="set-row">
+                          <span className="text-center text-sm font-semibold text-stone-500">{j + 1}</span>
+                          <input
+                            className="input text-center"
+                            inputMode="decimal"
+                            aria-label={`Exercise ${i + 1} set ${j + 1} ${unit}`}
+                            value={x.hold ? setDraft.holdSec : setDraft.reps}
+                            onChange={(e) => updateSet(j, x.hold ? { holdSec: e.target.value } : { reps: e.target.value })}
+                          />
+                          <input
+                            className="input text-center"
+                            inputMode="decimal"
+                            aria-label={`Exercise ${i + 1} set ${j + 1} kg`}
+                            value={setDraft.loadKg}
+                            onChange={(e) => updateSet(j, { loadKg: e.target.value })}
+                          />
+                          <button
+                            type="button"
+                            className="h-11 w-11 rounded-lg text-stone-500 ring-1 ring-stone-300 disabled:opacity-30 dark:ring-stone-700"
+                            aria-label={`Remove exercise ${i + 1} set ${j + 1}`}
+                            disabled={x.sets.length === 1}
+                            onClick={() => updateExercise(i, { sets: x.sets.filter((_, k) => k !== j) })}
+                          >
+                            <Icon name="close" className="mx-auto" width={18} height={18} />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="min-h-11 w-full rounded-lg text-sm font-semibold text-teal-700 ring-1 ring-stone-300 dark:text-teal-400 dark:ring-stone-700"
+                        aria-label={`Add set to exercise ${i + 1}`}
+                        onClick={() => updateExercise(i, { sets: [...x.sets, { ...(x.sets.at(-1) ?? blankSet()) }] })}
+                      >
+                        + Add set
+                      </button>
                     </div>
                   </div>
                 )

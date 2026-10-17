@@ -90,7 +90,7 @@ export function Today() {
               <Icon name="repeat" /> Repeat last session
             </span>
             <span className="text-xs font-normal opacity-90">
-              {last.activityName} · {entrySummary(last)}
+              {last.activityName} · {entrySummary(last, settings)}
             </span>
           </button>
         )}

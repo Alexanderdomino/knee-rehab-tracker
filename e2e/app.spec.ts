@@ -181,7 +181,7 @@ test('strength session with an isometric hold, validation and dark mode', async 
   await expect(page.getByTestId('exercise-row')).toHaveCount(1)
 
   // Validation: a strength session needs an exercise
-  await page.getByRole('button', { name: 'Remove exercise 1' }).click()
+  await page.getByRole('button', { name: 'Remove exercise 1', exact: true }).click()
   await page.getByRole('button', { name: 'Save session' }).click()
   await expect(page.getByRole('alert')).toContainText('Add at least one exercise')
 
@@ -189,29 +189,51 @@ test('strength session with an isometric hold, validation and dark mode', async 
   await page.getByRole('button', { name: 'Add exercise' }).click()
   await page.getByLabel('Exercise 1 name').fill('Iso leg extension')
   await page.getByRole('radiogroup', { name: 'Exercise 1 type' }).getByRole('radio', { name: 'Hold (seconds)' }).click()
-  await page.getByLabel('Exercise 1 sets').fill('4')
-  await page.getByLabel('Exercise 1 seconds').fill('45')
-  await page.getByLabel('Exercise 1 kg').fill('20')
+  await expect(page.getByTestId('exercise-row').first().getByTestId('set-row')).toHaveCount(3)
+  for (const n of [1, 2, 3]) {
+    await page.getByLabel(`Exercise 1 set ${n} seconds`).fill('45')
+    await page.getByLabel(`Exercise 1 set ${n} kg`).fill('20')
+  }
+  // "Add set" copies the last set
+  await page.getByRole('button', { name: 'Add set to exercise 1' }).click()
+  await expect(page.getByLabel('Exercise 1 set 4 seconds')).toHaveValue('45')
+  await expect(page.getByLabel('Exercise 1 set 4 kg')).toHaveValue('20')
   await expect(page.getByTestId('form-load')).toHaveText('1,200 kg')
 
-  // Romanian deadlift: 3 × 8 @ 60 kg = 1,440 kg
+  // Romanian deadlift with a different weight and reps per set: 10@60 + 8@65 + 6@70 = 1,540 kg
   await page.getByRole('button', { name: 'Add exercise' }).click()
   await page.getByLabel('Exercise 2 name').fill('Romanian deadlift')
-  await page.getByLabel('Exercise 2 sets').fill('3')
-  await page.getByLabel('Exercise 2 reps').fill('8')
-  await page.getByLabel('Exercise 2 kg').fill('60')
-  await expect(page.getByTestId('form-load')).toHaveText('2,640 kg')
+  for (const [n, reps, kg] of [[1, '10', '60'], [2, '8', '65'], [3, '6', '70']] as const) {
+    await page.getByLabel(`Exercise 2 set ${n} reps`).fill(reps)
+    await page.getByLabel(`Exercise 2 set ${n} kg`).fill(kg)
+  }
+  await expect(page.getByTestId('form-load')).toHaveText('2,740 kg')
+
+  // Move the last-added exercise to the top
+  await page.getByRole('button', { name: 'Move exercise 2 to top' }).click()
+  await expect(page.getByLabel('Exercise 1 name')).toHaveValue('Romanian deadlift')
+  await expect(page.getByLabel('Exercise 1 set 2 kg')).toHaveValue('65')
+  await expect(page.getByLabel('Exercise 2 name')).toHaveValue('Iso leg extension')
+  await expect(page.getByRole('button', { name: 'Move exercise 1 to top' })).toBeDisabled()
   await page.getByRole('button', { name: 'Save session' }).click()
 
   const list = page.getByTestId('entry-list')
-  await expect(list).toContainText('Iso leg extension 4×45 s @ 20 kg')
-  await expect(list).toContainText('Romanian deadlift 3×8 @ 60 kg')
-  await expect(list).toContainText('2,640')
+  await expect(list).toContainText('Romanian deadlift 10 @ 60 kg, 8 @ 65 kg, 6 @ 70 kg, Iso leg extension 4×45 s @ 20 kg')
+  await expect(list).toContainText('2,740')
 
-  // Editing keeps the hold
+  // Editing keeps every set, the order and the hold
   await list.getByTestId('entry-row').first().click()
-  await expect(page.getByLabel('Exercise 1 seconds')).toHaveValue('45')
-  await page.getByRole('button', { name: 'Back' }).click()
+  await expect(page.getByLabel('Exercise 1 name')).toHaveValue('Romanian deadlift')
+  await expect(page.getByLabel('Exercise 1 set 3 reps')).toHaveValue('6')
+  await expect(page.getByLabel('Exercise 1 set 3 kg')).toHaveValue('70')
+  await expect(page.getByLabel('Exercise 2 set 4 seconds')).toHaveValue('45')
+  // Move it back down and remove a set
+  await page.getByRole('button', { name: 'Move exercise 1 down' }).click()
+  await expect(page.getByLabel('Exercise 1 name')).toHaveValue('Iso leg extension')
+  await page.getByRole('button', { name: 'Remove exercise 1 set 4' }).click()
+  await expect(page.getByTestId('form-load')).toHaveText('2,440 kg')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(list).toContainText('Iso leg extension 3×45 s @ 20 kg, Romanian deadlift')
 
   await nav(page, 'Settings')
   await page.getByRole('radio', { name: 'Dark' }).click()
@@ -247,4 +269,41 @@ test('kitesurfing is built in and weighted by its knee-load factor', async ({ pa
   await expect(page.getByText('Settings saved')).toBeVisible()
   await nav(page, 'Today')
   await expect(list).toContainText('525')
+})
+
+test('bodyweight exercises count body weight, for past sessions too', async ({ page }) => {
+  await signIn(page)
+  // Log Bulgarian split squats with no extra weight: 0 kg load for now
+  await page.getByRole('button', { name: 'Knee rehab / strength', exact: true }).click()
+  await page.getByLabel('Exercise 1 name').fill('Bulgarian split squat')
+  await expect(page.getByTestId('form-load')).toHaveText('0 kg')
+  await page.getByRole('button', { name: 'Save session' }).click()
+  const list = page.getByTestId('entry-list')
+  await expect(list).toContainText('Bulgarian split squat 3×10')
+
+  // Set body weight
+  await nav(page, 'Settings')
+  await page.getByTestId('setting-bodyweight').fill('80')
+  await page.getByTestId('save-settings').click()
+  await expect(page.getByText('Settings saved')).toBeVisible()
+
+  // Mark the exercise as bodyweight from the form: the saved session is re-weighted
+  await nav(page, 'Today')
+  await list.getByTestId('entry-row').first().click()
+  await page.getByLabel('Exercise 1 uses body weight').check()
+  await expect(page.getByText('80 kg is added to each set')).toBeVisible()
+  await expect(page.getByTestId('form-load')).toHaveText('2,400 kg')
+  await page.getByRole('button', { name: 'Back' }).click()
+  await expect(list).toContainText('Bulgarian split squat 3×10 @ BW')
+  await expect(list).toContainText('2,400')
+
+  // It shows up in Settings and also matches a plural spelling in a new session
+  await nav(page, 'Settings')
+  await expect(page.getByTestId('bodyweight-exercises')).toContainText('Bulgarian split squat')
+  await nav(page, 'Today')
+  await page.getByRole('button', { name: 'Knee rehab / strength', exact: true }).click()
+  await page.getByLabel('Exercise 1 name').fill('bulgarian split squats')
+  await page.getByLabel('Exercise 1 set 1 kg').fill('10')
+  await expect(page.getByLabel('Exercise 1 uses body weight')).toBeChecked()
+  await expect(page.getByTestId('form-load')).toHaveText('2,500 kg') // 10×90 + 10×80 + 10×80
 })

@@ -65,8 +65,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const settings = useMemo(() => withDefaults(rawSettings), [rawSettings])
   const series = useMemo(
-    () => buildDailySeries(days ?? [], entries ?? [], today, undefined, settings.activityTypes),
-    [days, entries, today, settings.activityTypes],
+    () => buildDailySeries(days ?? [], entries ?? [], today, undefined, settings),
+    [days, entries, today, settings],
   )
   const guidance = useMemo(() => evaluateGuidance(series, settings), [series, settings])
 

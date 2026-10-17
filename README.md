@@ -87,7 +87,7 @@ All data lives under `users/{uid}/` and only that user can read or write it (see
 | Path                        | Content                                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `days/{YYYY-MM-DD}`         | `{ date, pain }`: one overall daily pain score 0–10. Separate from sessions, so rest days can have a score.  |
-| `entries/{autoId}`          | One session: `date, activityTypeId, activityName, kind (strength/cardio), durationMin (cardio), distanceKm?, exercises[] (name, sets, reps, loadKg, holdSec?), painDuring?, painNextMorning?, swelling (none/mild/moderate), notes` |
+| `entries/{autoId}`          | One session: `date, activityTypeId, activityName, kind (strength/cardio), durationMin (cardio), distanceKm?, exercises[] (name, setDetails[] (reps, loadKg, holdSec?), plus summary sets/reps/loadKg/holdSec mirroring the first set), painDuring?, painNextMorning?, swelling (none/mild/moderate), notes` |
 | `settings/main`             | Thresholds and the editable activity-type list                                                               |
 
 The rules validate value ranges: pain 0–10, duration 0–1440 (required for cardio), legacy RPE 1–10 if present, swelling enum, date-id format, and they reject unknown fields.
@@ -98,7 +98,16 @@ There's no effort rating (RPE) to fill in. Load is measured from what you did, a
 
 - **Strength load** = tonnage in kg = Σ sets × reps × kg. Heavier work counts for more on its own: a Romanian deadlift at 3 × 8 @ 60 kg (1,440 kg)
   outweighs a light accessory exercise. **Isometric holds** log seconds instead of reps and count *seconds ÷ 3* as reps, so 4 × 45 s @ 20 kg =
-  4 × 15 × 20 = 1,200 kg. Bodyweight-only exercises (0 kg) add 0.
+  4 × 15 × 20 = 1,200 kg.
+- **Every set is tracked separately** (its own reps or seconds and kg), so a pyramid like 10 @ 60, 8 @ 65, 6 @ 70 kg counts as
+  600 + 520 + 420 = 1,540 kg. Sessions logged before per-set tracking count as that many identical sets. When logging, *Add set* copies
+  the last set, and exercises can be moved up, down or to the top.
+- **Bodyweight exercises:** set your body weight once in **Settings → Body weight** and mark exercises as bodyweight (in Settings, or with
+  *Uses body weight* while logging). For those exercises, the kg you log is *extra* weight and your body weight is added to every set:
+  Bulgarian split squats 3 × 10 with no dumbbells at 80 kg = 2,400 kg. Names are matched ignoring capitals, spacing, notes in brackets
+  and a plural "s" ("Bulgarian split squats (BW)" = "Bulgarian split squat"). Like the knee factor, this is applied when data is read,
+  so past sessions are re-weighted too and switching it on doesn't look like a load spike. Exercises not marked as bodyweight
+  with 0 kg add 0.
 - **Cardio load** = minutes × the activity's **knee-load factor**, in *knee-minutes*. The factor says how hard an activity is on the knee
   per minute, relative to cycling (1.0). Defaults: walking 0.5, cycling 1, other 1, running 1.5, sport 1.5, **kitesurfing 2** (built in).
   These are starting points: change them per activity in **Settings → Activity types** (0.1–5), ideally with your physio. Factors are

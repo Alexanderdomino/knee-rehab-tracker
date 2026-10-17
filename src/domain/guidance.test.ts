@@ -327,6 +327,24 @@ describe('strength load stream (tonnage)', () => {
   });
 });
 
+describe('bodyweight exercises', () => {
+  it('turning body weight on re-weights history, so it does not look like a load spike', () => {
+    const bss = (date: string) =>
+      strengthEntry(date, 0, { exercises: [{ name: 'Bulgarian split squat', sets: 3, reps: 10, loadKg: 10 }] });
+    const entries = [bss(daysAgo(13)), bss(daysAgo(2))];
+    const days = painsEndingToday([1]);
+    const without = evaluateGuidance(series(days, entries, TODAY), settings());
+    const withBw = evaluateGuidance(
+      series(days, entries, TODAY, undefined, { bodyweightKg: 80, bodyweightExercises: ['Bulgarian split squat'] }),
+      settings({ bodyweightKg: 80, bodyweightExercises: ['Bulgarian split squat'] }),
+    );
+    expect(without.metrics.streams.strength.last7).toBe(300);
+    expect(withBw.metrics.streams.strength.last7).toBe(2700);
+    expect(withBw.metrics.streams.strength.wowPct).toBe(0);
+    expect(state(withBw, 'wow-increase', 'strength')).toBe('ok');
+  });
+});
+
 describe('knee-load factor', () => {
   it('3.5 h of kitesurfing counts as more load than the same time walking', () => {
     const kite = { activityTypeId: 'kitesurfing', activityName: 'Kitesurfing' };

@@ -17,7 +17,7 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import type { DayLog, Entry, ISODate, Settings } from '../domain'
+import { exerciseSets, type DayLog, type Entry, type Exercise, type ISODate, type Settings } from '../domain'
 
 const daysCol = (uid: string) => collection(db, 'users', uid, 'days')
 const entriesCol = (uid: string) => collection(db, 'users', uid, 'entries')
@@ -78,19 +78,27 @@ function cleanEntry(e: EntryInput) {
     distanceKm: e.kind === 'cardio' ? (e.distanceKm ?? null) : null,
     exercises:
       e.kind === 'strength'
-        ? (e.exercises ?? []).map((x) => ({
-            name: x.name,
-            sets: x.sets,
-            reps: x.holdSec ? 0 : x.reps,
-            loadKg: x.loadKg,
-            holdSec: x.holdSec ?? null,
-          }))
+        ? (e.exercises ?? []).map(cleanExercise)
         : [],
     painDuring: e.painDuring ?? null,
     painNextMorning: e.painNextMorning ?? null,
     swelling: e.swelling,
     notes: e.notes ?? '',
   }
+}
+
+/**
+ * Every set is stored in `setDetails`. The summary fields mirror the first set
+ * so older app versions and exports still have something sensible to show.
+ */
+function cleanExercise(x: Exercise): Exercise {
+  const sets = exerciseSets(x).map((set) => ({
+    reps: set.holdSec ? 0 : set.reps,
+    loadKg: set.loadKg,
+    holdSec: set.holdSec ?? null,
+  }))
+  const first = sets[0] ?? { reps: 0, loadKg: 0, holdSec: null }
+  return { name: x.name, setDetails: sets, sets: sets.length, reps: first.reps, loadKg: first.loadKg, holdSec: first.holdSec }
 }
 
 /** Returns the new id synchronously; the write itself resolves in the background. */
