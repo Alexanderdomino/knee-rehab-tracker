@@ -1,6 +1,6 @@
-import { cardioLoad, entryKneeFactor, strengthLoad } from './load';
+import { bodyweightFor, cardioLoad, entryKneeFactor, exerciseSets, strengthLoad } from './load';
 import type { DailyPoint } from './series';
-import type { ActivityType, Entry, Exercise } from './types';
+import type { Entry, Exercise, ExerciseSet, LoadContext } from './types';
 
 export function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return '';
@@ -71,7 +71,7 @@ export const ENTRIES_CSV_HEADER = [
 ];
 
 /** Every activity entry with full detail (one row per entry). */
-export function entriesCsv(entries: Entry[], activityTypes?: ActivityType[]): string {
+export function entriesCsv(entries: Entry[], ctx?: LoadContext): string {
   const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
   const rows: unknown[][] = [ENTRIES_CSV_HEADER];
   for (const e of sorted) {
@@ -81,10 +81,10 @@ export function entriesCsv(entries: Entry[], activityTypes?: ActivityType[]): st
       e.kind,
       e.durationMin ?? '',
       e.distanceKm ?? '',
-      e.kind === 'strength' ? Math.round(strengthLoad(e)) : '',
-      e.kind === 'cardio' ? entryKneeFactor(e, activityTypes) : '',
-      e.kind === 'cardio' ? round2(cardioLoad(e, entryKneeFactor(e, activityTypes))) : '',
-      (e.exercises ?? []).map(formatExercise).join('; '),
+      e.kind === 'strength' ? Math.round(strengthLoad(e, ctx)) : '',
+      e.kind === 'cardio' ? entryKneeFactor(e, ctx?.activityTypes) : '',
+      e.kind === 'cardio' ? round2(cardioLoad(e, entryKneeFactor(e, ctx?.activityTypes))) : '',
+      (e.exercises ?? []).map((x) => formatExercise(x, ctx)).join('; '),
       e.painDuring ?? '',
       e.painNextMorning ?? '',
       e.swelling,
@@ -94,10 +94,19 @@ export function entriesCsv(entries: Entry[], activityTypes?: ActivityType[]): st
   return toCsv(rows);
 }
 
-/** e.g. "Squat 3x10@40kg" or "Iso leg extension 4x45s@20kg". */
-export function formatExercise(x: Exercise): string {
-  const perSet = x.holdSec != null && x.holdSec > 0 ? `${x.holdSec}s` : `${x.reps}`;
-  return `${x.name} ${x.sets}x${perSet}@${x.loadKg}kg`;
+/**
+ * Compact exercise text for CSV: "Squat 3x10@40kg" when all sets are the same,
+ * otherwise each set: "RDL 10@60kg|8@65kg|6@70kg". Holds use seconds ("4x45s@20kg").
+ * Bodyweight exercises get "+BW" after the added weight.
+ */
+export function formatExercise(x: Exercise, ctx?: LoadContext): string {
+  const sets = exerciseSets(x);
+  const bw = bodyweightFor(x, ctx) > 0 ? '+BW' : '';
+  const one = (set: ExerciseSet) => `${set.holdSec != null && set.holdSec > 0 ? `${set.holdSec}s` : set.reps}@${set.loadKg}kg${bw}`;
+  const first = sets[0];
+  if (!first) return `${x.name} 0 sets`;
+  const uniform = sets.every((s) => s.reps === first.reps && s.loadKg === first.loadKg && (s.holdSec ?? null) === (first.holdSec ?? null));
+  return uniform ? `${x.name} ${sets.length}x${one(first)}` : `${x.name} ${sets.map(one).join('|')}`;
 }
 
 function round2(n: number) {

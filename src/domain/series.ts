@@ -1,6 +1,6 @@
 import { addDays, dateRange } from './dates';
 import { cardioLoad, cardioMinutes, entryKneeFactor, exerciseTonnage } from './load';
-import type { ActivityType, DayLog, Entry, ISODate, LoadStream, Swelling } from './types';
+import type { DayLog, Entry, ISODate, LoadContext, LoadStream, Swelling } from './types';
 
 /**
  * One calendar day after gap-filling. Days with neither a daily pain score nor
@@ -83,14 +83,15 @@ export function emptyPoint(date: ISODate): DailyPoint {
 /**
  * Build a continuous daily series from `start` (default: first log) to `end`
  * (inclusive). Missing days are filled at read time; nothing is written.
- * `activityTypes` supplies the knee-load factors for cardio (defaults if omitted).
+ * `ctx` supplies settings applied at read time: knee-load factors for cardio
+ * (defaults if omitted) and body weight for bodyweight exercises.
  */
 export function buildDailySeries(
   days: DayLog[],
   entries: Entry[],
   end: ISODate,
   start?: ISODate,
-  activityTypes?: ActivityType[],
+  ctx?: LoadContext,
 ): DailyPoint[] {
   const from = start ?? firstLogDate(days, entries);
   if (!from || from > end) return [];
@@ -118,13 +119,13 @@ export function buildDailySeries(
     p.entryCount += 1;
     if (e.kind === 'strength') {
       for (const x of e.exercises ?? []) {
-        const t = exerciseTonnage(x);
+        const t = exerciseTonnage(x, ctx);
         p.strengthLoad += t;
         const name = x.name?.trim() || 'Exercise';
         p.tonnageByExercise[name] = (p.tonnageByExercise[name] ?? 0) + t;
       }
     } else {
-      const load = cardioLoad(e, entryKneeFactor(e, activityTypes));
+      const load = cardioLoad(e, entryKneeFactor(e, ctx?.activityTypes));
       p.cardioLoad += load;
       p.cardioMinutes += cardioMinutes(e);
       p.distanceKm += Number(e.distanceKm) || 0;

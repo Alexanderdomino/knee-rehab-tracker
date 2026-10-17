@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { cardioLoad, cardioMinutes, entryKneeFactor, exerciseTonnage, formatLoad, repsEquivalent, strengthLoad, tonnage } from './load';
+import {
+  bodyweightFor,
+  cardioLoad,
+  cardioMinutes,
+  entryKneeFactor,
+  exerciseSets,
+  exerciseTonnage,
+  formatLoad,
+  isBodyweightExercise,
+  normalizeExerciseName,
+  repsEquivalent,
+  strengthLoad,
+  tonnage,
+} from './load';
 
 describe('tonnage (strength load)', () => {
   it('sums sets × reps × kg', () => {
@@ -28,6 +41,58 @@ describe('tonnage (strength load)', () => {
     expect(tonnage([{ name: 'x', sets: NaN, reps: 5, loadKg: 10 }])).toBe(0);
     expect(tonnage([{ name: 'x', sets: -3, reps: 5, loadKg: 10 }])).toBe(0);
     expect(tonnage(undefined)).toBe(0);
+  });
+});
+
+describe('per-set tracking', () => {
+  it('sums each set separately when sets differ', () => {
+    const rdl = {
+      name: 'Romanian deadlift', sets: 3, reps: 10, loadKg: 60,
+      setDetails: [{ reps: 10, loadKg: 60 }, { reps: 8, loadKg: 65 }, { reps: 6, loadKg: 70 }],
+    };
+    expect(exerciseTonnage(rdl)).toBe(600 + 520 + 420);
+  });
+
+  it('treats entries from before per-set tracking as identical sets', () => {
+    const old = { name: 'Squat', sets: 3, reps: 10, loadKg: 40 };
+    expect(exerciseSets(old)).toEqual([
+      { reps: 10, loadKg: 40, holdSec: null },
+      { reps: 10, loadKg: 40, holdSec: null },
+      { reps: 10, loadKg: 40, holdSec: null },
+    ]);
+    expect(exerciseTonnage(old)).toBe(1200);
+  });
+
+  it('supports holds of different lengths per set', () => {
+    const iso = { name: 'Iso', sets: 2, reps: 0, loadKg: 20, setDetails: [{ reps: 0, loadKg: 20, holdSec: 45 }, { reps: 0, loadKg: 20, holdSec: 30 }] };
+    expect(exerciseTonnage(iso)).toBe(15 * 20 + 10 * 20);
+  });
+});
+
+describe('bodyweight exercises', () => {
+  it('normalises names: case, spacing, notes in brackets, punctuation and a plural s', () => {
+    expect(normalizeExerciseName('  Bulgarian   Split Squats (BW) ')).toBe('bulgarian split squat');
+    expect(normalizeExerciseName('bulgarian split-squat')).toBe('bulgarian split squat');
+    expect(normalizeExerciseName('Leg press')).toBe('leg press'); // "ss" is not a plural
+    expect(isBodyweightExercise('Bulgarian split squats', ['Bulgarian split squat'])).toBe(true);
+    expect(isBodyweightExercise('BSS', ['Bulgarian split squat'])).toBe(false);
+    expect(isBodyweightExercise('Squat', [])).toBe(false);
+  });
+
+  it('adds body weight to every set, including holds and sets with extra weight', () => {
+    const ctx = { bodyweightKg: 80, bodyweightExercises: ['Bulgarian split squat'] };
+    const bss = { name: 'Bulgarian split squats', sets: 2, reps: 10, loadKg: 0, setDetails: [{ reps: 10, loadKg: 0 }, { reps: 8, loadKg: 10 }] };
+    expect(bodyweightFor(bss, ctx)).toBe(80);
+    expect(exerciseTonnage(bss, ctx)).toBe(10 * 80 + 8 * 90);
+    expect(exerciseTonnage(bss)).toBe(8 * 10); // no context: only added weight
+    const wallSit = { name: 'Wall sit', sets: 1, reps: 0, loadKg: 0, holdSec: 30 };
+    expect(exerciseTonnage(wallSit, { bodyweightKg: 80, bodyweightExercises: ['wall sits'] })).toBe(10 * 80);
+  });
+
+  it('adds nothing when body weight is not set or the exercise is not listed', () => {
+    const bss = { name: 'Bulgarian split squat', sets: 3, reps: 10, loadKg: 0 };
+    expect(exerciseTonnage(bss, { bodyweightKg: null, bodyweightExercises: ['Bulgarian split squat'] })).toBe(0);
+    expect(exerciseTonnage(bss, { bodyweightKg: 80, bodyweightExercises: ['Step-up'] })).toBe(0);
   });
 });
 

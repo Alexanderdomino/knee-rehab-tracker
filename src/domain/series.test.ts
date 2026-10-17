@@ -72,6 +72,17 @@ describe('buildDailySeries gap filling', () => {
     expect(custom[0].cardioLoad).toBe(630 + 60);
   });
 
+  it('applies body weight from settings to past sessions too', () => {
+    const bss = (date: string, kg: number) =>
+      strengthEntry(date, 0, { exercises: [{ name: 'Bulgarian split squat', sets: 3, reps: 10, loadKg: kg }] });
+    const entries = [bss('2026-06-01', 0), bss('2026-06-02', 10)];
+    const before = series([], entries, '2026-06-02');
+    expect(before.map((p) => p.strengthLoad)).toEqual([0, 300]);
+    const after = series([], entries, '2026-06-02', undefined, { bodyweightKg: 80, bodyweightExercises: ['bulgarian split squats'] });
+    expect(after.map((p) => p.strengthLoad)).toEqual([2400, 2700]);
+    expect(after[0].tonnageByExercise).toEqual({ 'Bulgarian split squat': 2400 });
+  });
+
   it('daily score takes precedence over session pain', () => {
     const s = series([{ date: '2026-06-01', pain: 1 }], [entry('2026-06-01', { painDuring: 4 })], '2026-06-01');
     expect(s[0].pain).toBe(1);

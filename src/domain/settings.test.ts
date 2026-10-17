@@ -74,6 +74,21 @@ describe('withDefaults migration of stored settings', () => {
   });
 });
 
+describe('body weight settings', () => {
+  it('default to unset with no exercises and sanitise stored values', () => {
+    expect(withDefaults(null)).toMatchObject({ bodyweightKg: null, bodyweightExercises: [] });
+    expect(withDefaults({ bodyweightKg: 80, bodyweightExercises: ['BSS'] })).toMatchObject({ bodyweightKg: 80, bodyweightExercises: ['BSS'] });
+    expect(withDefaults({ bodyweightKg: 0 } as never).bodyweightKg).toBeNull();
+  });
+
+  it('validates body weight 20–300 kg or empty', () => {
+    expect(validateSettings({ ...DEFAULT_SETTINGS, bodyweightKg: null })).toEqual([]);
+    expect(validateSettings({ ...DEFAULT_SETTINGS, bodyweightKg: 80 })).toEqual([]);
+    expect(validateSettings({ ...DEFAULT_SETTINGS, bodyweightKg: 8 })).toEqual(['Body weight must be 20–300 kg (or empty).']);
+    expect(validateSettings({ ...DEFAULT_SETTINGS, bodyweightKg: NaN })).toHaveLength(1);
+  });
+});
+
 describe('validateSettings', () => {
   it('requires a knee factor of 0.1–5 on cardio types', () => {
     const withFactor = (kneeFactor: number) => ({

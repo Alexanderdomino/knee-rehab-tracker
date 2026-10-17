@@ -77,6 +77,8 @@ export const DEFAULT_SETTINGS: Settings = {
   greenDaysRequired: 7,
   activityTypes: DEFAULT_ACTIVITY_TYPES,
   typesVersion: TYPES_VERSION,
+  bodyweightKg: null,
+  bodyweightExercises: [],
 };
 
 /** Merge a (possibly partial / older) stored settings doc over defaults. */
@@ -92,6 +94,9 @@ export function withDefaults(partial: Partial<Settings> | undefined | null): Set
     merged.activityTypes = migrateActivityTypes(merged.activityTypes, Number(known.typesVersion) || 1);
   }
   merged.typesVersion = TYPES_VERSION;
+  if (!Array.isArray(merged.bodyweightExercises)) merged.bodyweightExercises = [];
+  const bw = Number(merged.bodyweightKg);
+  merged.bodyweightKg = merged.bodyweightKg != null && Number.isFinite(bw) && bw > 0 ? bw : null;
   return merged;
 }
 
@@ -118,6 +123,8 @@ export function validateSettings(s: Settings): string[] {
   if (!Number.isInteger(s.greenDaysRequired) || s.greenDaysRequired < 1 || s.greenDaysRequired > 60)
     errors.push('Green days required must be a whole number 1–60.');
   if (s.activityTypes.length === 0) errors.push('Keep at least one activity type.');
+  if (s.bodyweightKg !== null && !(Number(s.bodyweightKg) >= 20 && Number(s.bodyweightKg) <= 300))
+    errors.push('Body weight must be 20–300 kg (or empty).');
   for (const t of s.activityTypes) {
     if (t.kind === 'cardio' && !(Number(t.kneeFactor) >= 0.1 && Number(t.kneeFactor) <= 5))
       errors.push(`Knee-load factor for ${t.name || 'an activity'} must be 0.1–5.`);

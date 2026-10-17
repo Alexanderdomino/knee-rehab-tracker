@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DEFAULT_SETTINGS as DEFAULTS, dailyCsv, defaultKneeFactor, entriesCsv, validateSettings, type ActivityKind, type ActivityType, type Settings as SettingsT } from '../domain'
+import { DEFAULT_SETTINGS as DEFAULTS, dailyCsv, defaultKneeFactor, entriesCsv, normalizeExerciseName, validateSettings, type ActivityKind, type ActivityType, type Settings as SettingsT } from '../domain'
 import { saveSettings } from '../data/repo'
 import { Icon } from '../components/Icon'
 import { PageHeader } from '../components/Layout'
@@ -10,7 +10,7 @@ import { signOutUser, useAuth } from '../state/auth'
 import { useData } from '../state/data'
 import { useToast } from '../state/toast'
 
-type NumKey = Exclude<keyof SettingsT, 'activityTypes'>
+type NumKey = Exclude<keyof SettingsT, 'activityTypes' | 'typesVersion' | 'bodyweightKg' | 'bodyweightExercises'>
 
 const FIELDS: { key: NumKey; label: string; hint?: string; step?: string }[] = [
   { key: 'greenMax', label: 'Green zone: pain up to', hint: 'Pain 0 to this value is green' },
@@ -35,7 +35,7 @@ export function Settings() {
   if (loading) return <p className="py-10 text-center text-stone-500">Loading…</p>
   return <SettingsForm key={JSON.stringify(settings)} initial={settings} uid={uid} onExport={(kind) => {
     if (kind === 'daily') downloadText(`knee-tracker-daily-${today}.csv`, dailyCsv(series))
-    else downloadText(`knee-tracker-entries-${today}.csv`, entriesCsv(entries, settings.activityTypes))
+    else downloadText(`knee-tracker-entries-${today}.csv`, entriesCsv(entries, settings))
   }} />
 }
 
@@ -46,6 +46,14 @@ function SettingsForm({ initial, uid, onExport }: { initial: SettingsT; uid: str
     () => Object.fromEntries(FIELDS.map((f) => [f.key, String(initial[f.key])])) as Record<NumKey, string>,
   )
   const [types, setTypes] = useState<ActivityType[]>(initial.activityTypes)
+  const [bodyweight, setBodyweight] = useState(initial.bodyweightKg === null ? '' : String(initial.bodyweightKg))
+  const [bwExercises, setBwExercises] = useState<string[]>(initial.bodyweightExercises)
+  const [newBwExercise, setNewBwExercise] = useState('')
+  const addBwExercise = () => {
+    const name = newBwExercise.trim()
+    if (name && !bwExercises.some((b) => normalizeExerciseName(b) === normalizeExerciseName(name))) setBwExercises([...bwExercises, name])
+    setNewBwExercise('')
+  }
   const [errors, setErrors] = useState<string[]>([])
   const [theme, setTheme] = useState<ThemePref>(getThemePref())
 
@@ -53,6 +61,8 @@ function SettingsForm({ initial, uid, onExport }: { initial: SettingsT; uid: str
     ...initial,
     ...(Object.fromEntries(FIELDS.map((f) => [f.key, Number(values[f.key].replace(',', '.'))])) as Record<NumKey, number>),
     activityTypes: types.map((t) => ({ ...t, name: t.name.trim() })).filter((t) => t.name),
+    bodyweightKg: bodyweight.trim() === '' ? null : Number(bodyweight.replace(',', '.')),
+    bodyweightExercises: bwExercises,
   })
 
   const save = async () => {
@@ -90,6 +100,68 @@ function SettingsForm({ initial, uid, onExport }: { initial: SettingsT; uid: str
             {f.hint && <span className="mt-1 block text-xs text-stone-500">{f.hint}</span>}
           </label>
         ))}
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="section-title">Body weight</h2>
+        <label className="block">
+          <span className="label">Your body weight (kg)</span>
+          <input
+            className="input"
+            type="number"
+            inputMode="decimal"
+            step="0.1"
+            data-testid="setting-bodyweight"
+            value={bodyweight}
+            placeholder="e.g. 80"
+            onChange={(e) => setBodyweight(e.target.value)}
+          />
+          <span className="mt-1 block text-xs text-stone-500">
+            Added to every set of the exercises below, so for those you only log extra weight (dumbbells etc.). It applies to past sessions too, so
+            switching doesn’t make your load jump.
+          </span>
+        </label>
+        <div>
+          <span className="label">Bodyweight exercises</span>
+          {bwExercises.length === 0 ? (
+            <p className="text-sm text-stone-500">None yet. Add one here or tick “Uses body weight” on an exercise when logging.</p>
+          ) : (
+            <ul className="flex flex-wrap gap-2" data-testid="bodyweight-exercises">
+              {bwExercises.map((name) => (
+                <li key={name} className="flex items-center gap-1 rounded-full bg-stone-100 py-1 pr-1 pl-3 text-sm dark:bg-stone-800">
+                  {name}
+                  <button
+                    type="button"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-stone-500"
+                    aria-label={`Remove ${name} from bodyweight exercises`}
+                    onClick={() => setBwExercises(bwExercises.filter((b) => b !== name))}
+                  >
+                    <Icon name="close" width={16} height={16} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-2 flex gap-2">
+            <input
+              className="input flex-1"
+              placeholder="e.g. Bulgarian split squat"
+              aria-label="New bodyweight exercise"
+              value={newBwExercise}
+              onChange={(e) => setNewBwExercise(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addBwExercise()
+                }
+              }}
+            />
+            <button type="button" className="btn-secondary" onClick={addBwExercise}>
+              Add
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-stone-500">Matched ignoring capitals, spacing, notes in brackets and a plural “s”.</p>
+        </div>
       </section>
 
       <section className="card space-y-2">

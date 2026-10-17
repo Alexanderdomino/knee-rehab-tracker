@@ -15,8 +15,25 @@ export interface ActivityType {
   kneeFactor?: number;
 }
 
+/** One set of an exercise. */
+export interface ExerciseSet {
+  /** Reps in this set. Ignored for holds. */
+  reps: number;
+  /** Added weight in kg (body weight is added at read time for bodyweight exercises). */
+  loadKg: number;
+  /** Hold length in seconds for isometric holds; null/absent for normal reps. */
+  holdSec?: number | null;
+}
+
 export interface Exercise {
   name: string;
+  /**
+   * Each set individually. When present it is the source of truth; the summary
+   * fields below mirror the first set (kept so older data and exports still work).
+   * Entries logged before per-set tracking only have the summary fields, which
+   * mean `sets` identical sets.
+   */
+  setDetails?: ExerciseSet[];
   sets: number;
   /** Reps per set. Ignored for holds (when holdSec is set). */
   reps: number;
@@ -75,7 +92,14 @@ export interface Settings {
    * on read; once saved at the current version, the user's edits win.
    */
   typesVersion: number;
+  /** Body weight in kg, added to every set of a bodyweight exercise. Null = not set. */
+  bodyweightKg: number | null;
+  /** Exercise names that use body weight (matched ignoring case, spacing and a plural "s"). */
+  bodyweightExercises: string[];
 }
+
+/** Settings needed to turn raw entries into load (applied at read time). */
+export type LoadContext = Partial<Pick<Settings, 'activityTypes' | 'bodyweightKg' | 'bodyweightExercises'>>;
 
 export type Zone = 'green' | 'amber' | 'red';
 export type Status = 'GREEN' | 'AMBER' | 'RED';
