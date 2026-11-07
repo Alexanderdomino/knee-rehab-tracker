@@ -228,7 +228,7 @@ function SettingsForm({ initial, uid, onExport }: { initial: SettingsT; uid: str
           <Icon name="plus" /> Add activity type
         </button>
         <p className="text-xs text-stone-500">
-          Cardio load = minutes × knee-load factor (cycling = 1). Defaults: walking 0.5, cycling 1, running 1.5, sport 1.5, kitesurfing 2 —
+          Cardio load = minutes × knee-load factor (cycling = 1). Defaults: walking 0.5, cycling 1, rowing machine 1.2, running 1.5, sport 1.5, kitesurfing 2 —
           starting points to adjust with your physio. Changing a factor re-weights past sessions too. Past entries keep the name they were logged with.
         </p>
       </section>

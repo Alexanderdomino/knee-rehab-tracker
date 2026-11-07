@@ -8,16 +8,20 @@ export const DEFAULT_KNEE_FACTORS: Record<string, number> = {
   walking: 0.5,
   cycling: 1,
   other: 1,
+  rowing: 1.2,
   running: 1.5,
   sport: 1.5,
   kitesurfing: 2,
 };
 
 export const KITESURFING: ActivityType = { id: 'kitesurfing', name: 'Kitesurfing', kind: 'cardio', kneeFactor: 2 };
+/** Rowing machine: low impact, but deep knee bend at the catch on every stroke. */
+export const ROWING: ActivityType = { id: 'rowing', name: 'Rowing machine', kind: 'cardio', kneeFactor: 1.2 };
 
 export const DEFAULT_ACTIVITY_TYPES: ActivityType[] = [
   { id: 'rehab', name: 'Knee rehab / strength', kind: 'strength' },
   { id: 'cycling', name: 'Cycling', kind: 'cardio', kneeFactor: 1 },
+  ROWING,
   { id: 'running', name: 'Running', kind: 'cardio', kneeFactor: 1.5 },
   { id: 'walking', name: 'Walking', kind: 'cardio', kneeFactor: 0.5 },
   KITESURFING,
@@ -25,15 +29,22 @@ export const DEFAULT_ACTIVITY_TYPES: ActivityType[] = [
   { id: 'other', name: 'Other', kind: 'cardio', kneeFactor: 1 },
 ];
 
-/** Current version of the default activity-type list (2 = knee factors + Kitesurfing). */
-export const TYPES_VERSION = 2;
+/**
+ * Current version of the default activity-type list.
+ * 2 = knee factors + Kitesurfing, 3 = Rowing machine.
+ */
+export const TYPES_VERSION = 3;
 
-const isKite = (t: Pick<ActivityType, 'id' | 'name'>) => /kite/i.test(t.id) || /kite/i.test(t.name);
+const matches = (re: RegExp) => (t: Pick<ActivityType, 'id' | 'name'>) => re.test(t.id) || re.test(t.name);
+const isKite = matches(/kite/i);
+// "Rowing", "Rowing machine", "Rower", "Ergometer", "Erg", "Concept2"
+const isRowing = matches(/\b(row|erg)|concept\s*2/i);
 
 /** Default knee factor for an activity: by id, then by name (e.g. a user-made "Kite surfing"), else 1. */
 export function defaultKneeFactor(t: Pick<ActivityType, 'id' | 'name'>): number {
   if (t.id in DEFAULT_KNEE_FACTORS) return DEFAULT_KNEE_FACTORS[t.id];
   if (isKite(t)) return DEFAULT_KNEE_FACTORS.kitesurfing;
+  if (isRowing(t)) return DEFAULT_KNEE_FACTORS.rowing;
   const byName = t.name.trim().toLowerCase();
   if (byName in DEFAULT_KNEE_FACTORS) return DEFAULT_KNEE_FACTORS[byName];
   return 1;
@@ -46,20 +57,30 @@ export function kneeFactorOf(t: ActivityType): number {
 }
 
 /**
+ * Activities added to the defaults in later versions. Each is added to an older
+ * saved list once (unless a matching activity already exists), next to `after`
+ * if present, otherwise before Sport/Other, otherwise at the end.
+ */
+const ADDED_DEFAULTS: { version: number; type: ActivityType; exists: (t: ActivityType) => boolean; after: string }[] = [
+  { version: 2, type: KITESURFING, exists: isKite, after: 'walking' },
+  { version: 3, type: ROWING, exists: isRowing, after: 'cycling' },
+];
+
+/**
  * Bring an older stored activity list up to TYPES_VERSION: fill in missing knee
- * factors and add Kitesurfing unless a kite activity already exists.
+ * factors and add the activities introduced since `fromVersion`.
  */
 export function migrateActivityTypes(types: ActivityType[], fromVersion: number): ActivityType[] {
   if (fromVersion >= TYPES_VERSION) return types;
   const out = types.map((t) =>
     t.kind === 'cardio' && !(Number(t.kneeFactor) > 0) ? { ...t, kneeFactor: defaultKneeFactor(t) } : t,
   );
-  if (!out.some(isKite)) {
-    // Insert after Walking if present, otherwise before Sport/Other, otherwise at the end.
-    const after = out.findIndex((t) => t.id === 'walking');
+  for (const added of ADDED_DEFAULTS) {
+    if (fromVersion >= added.version || out.some(added.exists)) continue;
+    const after = out.findIndex((t) => t.id === added.after);
     const before = out.findIndex((t) => t.id === 'sport' || t.id === 'other');
     const at = after >= 0 ? after + 1 : before >= 0 ? before : out.length;
-    out.splice(at, 0, { ...KITESURFING });
+    out.splice(at, 0, { ...added.type });
   }
   return out;
 }
