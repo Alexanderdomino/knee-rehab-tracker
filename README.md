@@ -109,7 +109,7 @@ There's no effort rating (RPE) to fill in. Load is measured from what you did, a
   so past sessions are re-weighted too and switching it on doesn't look like a load spike. Exercises not marked as bodyweight
   with 0 kg add 0.
 - **Cardio load** = minutes × the activity's **knee-load factor**, in *knee-minutes*. The factor says how hard an activity is on the knee
-  per minute, relative to cycling (1.0). Defaults: walking 0.5, cycling 1, other 1, running 1.5, sport 1.5, **kitesurfing 2** (built in).
+  per minute, relative to cycling (1.0). Defaults: walking 0.5, cycling 1, other 1, **rowing machine 1.2** (built in), running 1.5, sport 1.5, **kitesurfing 2** (built in).
   These are starting points: change them per activity in **Settings → Activity types** (0.1–5), ideally with your physio. Factors are
   applied when the data is read, so changing one re-weights past sessions too and keeps week-to-week comparisons consistent. 3.5 h of
   kitesurfing = 210 min × 2 = 420 knee-min. Distance is recorded but not used for load.

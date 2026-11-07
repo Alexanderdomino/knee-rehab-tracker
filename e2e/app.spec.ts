@@ -269,6 +269,16 @@ test('kitesurfing is built in and weighted by its knee-load factor', async ({ pa
   await expect(page.getByText('Settings saved')).toBeVisible()
   await nav(page, 'Today')
   await expect(list).toContainText('525')
+
+  // Rowing machine is built in too: 5 min × 1.2 = 6 knee-min, distance recorded
+  await page.getByRole('button', { name: 'Rowing machine', exact: true }).click()
+  await page.locator('#duration').fill('5')
+  await page.getByLabel('Distance (km, optional)').fill('1.243')
+  await expect(page.getByTestId('form-load')).toHaveText('6 knee-min')
+  await expect(page.getByTestId('form-load-detail')).toHaveText('5 min × 1.2 knee-load factor')
+  await page.getByRole('button', { name: 'Save session' }).click()
+  await expect(list).toContainText('Rowing machine')
+  await expect(list).toContainText('5 min · 1.243 km')
 })
 
 test('bodyweight exercises count body weight, for past sessions too', async ({ page }) => {

@@ -20,18 +20,22 @@ const OLD_TYPES: ActivityType[] = [
 ];
 
 describe('default activity types', () => {
-  it('include Kitesurfing and a knee factor on every cardio type', () => {
+  it('include Kitesurfing, Rowing machine and a knee factor on every cardio type', () => {
     const kite = DEFAULT_ACTIVITY_TYPES.find((t) => t.id === 'kitesurfing');
     expect(kite).toMatchObject({ name: 'Kitesurfing', kind: 'cardio', kneeFactor: 2 });
+    expect(DEFAULT_ACTIVITY_TYPES.find((t) => t.id === 'rowing')).toMatchObject({ name: 'Rowing machine', kind: 'cardio', kneeFactor: 1.2 });
     const factors = Object.fromEntries(DEFAULT_ACTIVITY_TYPES.filter((t) => t.kind === 'cardio').map((t) => [t.id, t.kneeFactor]));
-    expect(factors).toEqual({ cycling: 1, running: 1.5, walking: 0.5, kitesurfing: 2, sport: 1.5, other: 1 });
+    expect(factors).toEqual({ cycling: 1, rowing: 1.2, running: 1.5, walking: 0.5, kitesurfing: 2, sport: 1.5, other: 1 });
   });
 
   it('default factor by id, then by name, else 1', () => {
     expect(defaultKneeFactor({ id: 'walking', name: 'x' })).toBe(0.5);
     expect(defaultKneeFactor({ id: 'kite-surf-ab12c', name: 'Kite surfing' })).toBe(2);
     expect(defaultKneeFactor({ id: 'abc', name: 'Running' })).toBe(1.5);
+    expect(defaultKneeFactor({ id: 'erg-x1', name: 'Ergometer' })).toBe(1.2);
+    expect(defaultKneeFactor({ id: 'c2-ab', name: 'Concept2' })).toBe(1.2);
     expect(defaultKneeFactor({ id: 'yoga-1', name: 'Yoga' })).toBe(1);
+    expect(defaultKneeFactor({ id: 'arrows-1', name: 'Archery arrows' })).toBe(1);
   });
 
   it('kneeFactorOf uses the stored factor, falling back to the default', () => {
@@ -42,10 +46,10 @@ describe('default activity types', () => {
 });
 
 describe('withDefaults migration of stored settings', () => {
-  it('adds knee factors and Kitesurfing (after Walking) to an older saved list', () => {
+  it('adds knee factors, Rowing (after Cycling) and Kitesurfing (after Walking) to an older saved list', () => {
     const s = withDefaults({ activityTypes: OLD_TYPES });
     expect(s.typesVersion).toBe(TYPES_VERSION);
-    expect(s.activityTypes.map((t) => t.id)).toEqual(['rehab', 'cycling', 'running', 'walking', 'kitesurfing', 'sport', 'other']);
+    expect(s.activityTypes.map((t) => t.id)).toEqual(['rehab', 'cycling', 'rowing', 'running', 'walking', 'kitesurfing', 'sport', 'other']);
     expect(s.activityTypes.find((t) => t.id === 'walking')!.kneeFactor).toBe(0.5);
     expect(s.activityTypes.find((t) => t.id === 'rehab')!.kneeFactor).toBeUndefined();
   });
@@ -59,8 +63,25 @@ describe('withDefaults migration of stored settings', () => {
     });
     expect(s.activityTypes).toEqual([
       { id: 'cycling', name: 'Cycling', kind: 'cardio', kneeFactor: 0.8 },
+      { id: 'rowing', name: 'Rowing machine', kind: 'cardio', kneeFactor: 1.2 },
       { id: 'kitesurfing-x1y2z', name: 'Kite surfing', kind: 'cardio', kneeFactor: 2 },
     ]);
+  });
+
+  it('a list saved at version 2 only gets Rowing: a deleted Kitesurfing stays deleted', () => {
+    const v2 = [
+      { id: 'rehab', name: 'Knee rehab / strength', kind: 'strength' as const },
+      { id: 'cycling', name: 'Cycling', kind: 'cardio' as const, kneeFactor: 1 },
+      { id: 'walking', name: 'Walking', kind: 'cardio' as const, kneeFactor: 0.5 },
+    ];
+    const s = withDefaults({ activityTypes: v2, typesVersion: 2 });
+    expect(s.activityTypes.map((t) => t.id)).toEqual(['rehab', 'cycling', 'rowing', 'walking']);
+  });
+
+  it('does not duplicate a self-made rowing activity', () => {
+    const own = [{ id: 'concept2-q9', name: 'Concept2 row', kind: 'cardio' as const, kneeFactor: 1.4 }];
+    const s = withDefaults({ activityTypes: own, typesVersion: 2 });
+    expect(s.activityTypes).toEqual(own);
   });
 
   it('respects the user’s list once saved at the current version (e.g. Kitesurfing removed)', () => {
